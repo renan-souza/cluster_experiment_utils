@@ -1,0 +1,77 @@
+project:
+  debug: true
+  json_serializer: default # or complex. If "complex", FlowCept will deal with complex python dicts that may contain JSON unserializable values
+  performance_logging: false
+  register_workflow: true
+  telemetry_capture:
+    gpu: true
+    cpu: true
+    per_cpu: true
+    process_info: true
+    mem: true
+    disk: true
+    network: true
+    machine_info: true
+
+log:
+  log_path: ${log_path}
+  log_file_level: ${log_level}
+  log_stream_level: ${log_level}
+
+experiment:
+  user: ${user}
+  experiment_id: ${experiment_id}
+
+main_redis:
+  host: a
+  port: 6379
+  channel: interception
+  buffer_size: 50
+  insertion_buffer_time_secs: 5
+
+mongodb:
+  host: localhost
+  port: 27017
+  db: flowcept
+  collection: tasks
+  insertion_buffer_time_secs: 5
+  max_buffer_size: 50
+  min_buffer_size: 10
+  remove_empty_fields: false
+  create_collection_index: true
+
+web_server:
+  host: 0.0.0.0
+  port: 5000
+
+
+  #  sys_name: 0
+#  node_name: 0
+#  login_name: 0
+#  public_ip: 0
+#  private_ip: 0
+#
+
+extra_metadata:
+  place_holder: ""
+  job_id: ${job_id}
+
+analytics:
+  sort_orders:
+    generated.loss: minimum_first
+    generated.accuracy: maximum_first
+
+
+adapters:
+  # For each key below, you can have multiple instances. Like mlflow1, mlflow2; zambeze1, zambeze2. Use an empty dict, {}, if you won't use any adapter.
+
+  dask:
+    kind: dask
+    redis_host: ${main_redis.host}
+    redis_port: ${main_redis.port}
+    enrich_messages: true
+    worker_should_get_input: true
+    scheduler_should_get_input: true
+    worker_should_get_output: true
+    scheduler_create_timestamps: true
+    worker_create_timestamps: false

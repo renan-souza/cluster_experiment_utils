@@ -1,0 +1,54 @@
+project:
+  debug: true
+  json_serializer: default
+  performance_logging: false
+  register_workflow: true
+  telemetry_capture:
+    gpu: true
+    cpu: true
+    per_cpu: true
+    process_info: true
+    mem: true
+    disk: true
+    network: true
+    machine_info: true
+log:
+  log_path: ~/.flowcept/tests/rep0/flowcept.log
+  log_file_level: error
+  log_stream_level: error
+experiment:
+  user: souzar
+  experiment_id: flowcept_synthetic
+main_redis:
+  host: dblocalhost
+  port: 6379
+  channel: interception
+  buffer_size: 50
+  insertion_buffer_time_secs: 5
+mongodb:
+  host: dblocalhost
+  port: 27017
+  db: flowcept
+  collection: tasks
+  insertion_buffer_time_secs: 5
+  max_buffer_size: 50
+  min_buffer_size: 10
+  remove_empty_fields: false
+  create_collection_index: true
+web_server:
+  host: 0.0.0.0
+  port: 5000
+extra_metadata:
+  place_holder: ''
+  job_id: 1234
+analytics:
+  sort_orders:
+    generated.loss: minimum_first
+    generated.accuracy: maximum_first
+adapters:
+  dask:
+    worker_should_get_input: false
+    scheduler_should_get_input: true
+    worker_should_get_output: true
+    scheduler_create_timestamps: false
+    worker_create_timestamps: false

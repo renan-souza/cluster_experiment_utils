@@ -1,0 +1,5 @@
+PyYAML==6.0.1
+pymongo==4.3.3
+flowcept
+black==23.1.0
+omegaconf
