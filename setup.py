@@ -1,7 +1,7 @@
 from setuptools import setup, find_packages
 
 
-with open("experiment_utils/version.py") as f:
+with open("cluster_experiment_utils/version.py") as f:
     exec(f.read())
     version = locals()["__version__"]
 
@@ -10,7 +10,7 @@ def get_descriptions():
     with open("README.md") as f:
         readme_content = f.read()
 
-    return "Experiment Utils", readme_content
+    return "Cluster Experiment Utils", readme_content
 
 
 def get_requirements(file_path):
@@ -29,7 +29,7 @@ keywords = ["experiment-utils", "experiment_utils"]
 short_description, long_description = get_descriptions()
 
 setup(
-    name="experiment_utils",
+    name="cluster_experiment_utils",
     version=version,
     license="MIT",
     author="Renan Souza",
