@@ -1,5 +1,7 @@
 static_params:
+  scheduler_type: slurm
   project_id: STF001
+  dask_client_script: aaaa.py --abc=${abc_val} # script where we have client.submit
   job_execution_script: /gpfs/alpine/stf219/scratch/souzar/flowcept-exps/summit/synthetic_simple/flowcept_dask_job_execution.py
   queue: debug
   job_name: flowcept_synthetic

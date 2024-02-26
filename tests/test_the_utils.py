@@ -1,12 +1,11 @@
 import os.path
 import unittest
 from pathlib import Path
-import random
 
 from omegaconf import OmegaConf
 
-from experiment_utils.flowcept_utils import update_flowcept_settings
-from experiment_utils.utils import generate_configs
+from cluster_experiment_utils.flowcept_utils import update_flowcept_settings
+from cluster_experiment_utils.utils import generate_configs
 
 
 class TestTheUtils(unittest.TestCase):

@@ -6,7 +6,8 @@ from cluster_experiment_utils.cluster_utils.base_cluster_utils import BaseCluste
 from cluster_experiment_utils.utils import run_cmd_check_output
 
 
-class LsfUtils(BaseClusterUtils):
+# TODO this class is currently just a copy of the lsf utils. Need to implement correctly.
+class SlurmUtils(BaseClusterUtils):
     def get_this_job_id(self):
         return os.getenv("LSB_JOBID")
 
@@ -18,6 +19,10 @@ class LsfUtils(BaseClusterUtils):
         print("Kill command submitted!")
 
     def get_job_hosts(self):
+        """
+        Gets a mapping of job hosts and number of available cores per host
+        :return:
+        """
         hosts = os.getenv("LSB_HOSTS")
         if hosts is not None:
             lsb_hosts = hosts.split()

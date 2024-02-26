@@ -1,61 +1,14 @@
 import json
 import os
 import sys
+from flowcept import TaskQueryAPI, DBAPI, WorkflowObject
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict
 
 from omegaconf import OmegaConf, DictConfig
 
-from experiment_utils.utils import printed_sleep, run_cmd
-
-
-def generate_job_output(
-    conf_data,
-    host_allocs,
-    host_counts,
-    job_dir,
-    my_job_id,
-    proj_dir,
-    python_env,
-    rep_dir,
-    rep_no,
-    resource_usage,
-    t0,
-    t1,
-    t_c_f,
-    t_c_i,
-    varying_param_key,
-    wf_result,
-    with_flowcept,
-):
-    out_job = {
-        "my_job_id": my_job_id,
-        "job_dir": job_dir,
-        "rep_dir": rep_dir,
-        "lsf_job_id": os.getenv("LSB_JOBID"),
-        "lsb_hosts": host_counts,
-        "varying_param_key": varying_param_key,
-        "rep_no": rep_no,
-        "with_flowcept": with_flowcept,
-        "python_env": python_env,
-        "run_end_time": datetime.utcnow().strftime("%Y-%m-%d %H-%M-%S.%f")[:-3],
-        "total_time": t1 - t0,
-        "client_time": t_c_f - t_c_i,
-    }
-    if wf_result:
-        out_job["wf_result"] = wf_result
-    out_job.update(conf_data["varying_params"][varying_param_key])
-    out_job.update(host_allocs)
-    out_job.update(conf_data["static_params"])
-    out_job.update(conf_data["varying_params"][varying_param_key])
-    if resource_usage is not None:
-        out_job.update(resource_usage)
-    print(json.dumps(out_job, indent=2))
-    with open(f"{rep_dir}/out_job.json", "w") as f:
-        f.write(json.dumps(out_job, indent=2) + "\n")
-    with open(f"{proj_dir}/results.jsonl", "a+") as f:
-        f.write(json.dumps(out_job) + "\n")
+from cluster_experiment_utils.utils import printed_sleep, run_cmd
 
 
 # def test_mongo(flowcept_settings, wf_result):
@@ -145,3 +98,32 @@ def start_redis(db_host, redis_image, redis_conf_file):
     )
     printed_sleep(2)
     print("Done starting Redis.")
+
+
+def test_data_and_persist(rep_dir, wf_result, job_output):
+    api = TaskQueryAPI()
+
+    wf_id = wf_result.get("workflow_id")
+    docs = api.query(filter={"workflow_id": wf_id})
+
+    if len(docs):
+        print("Found docs!")
+
+    db_api = DBAPI()
+    wfobj = WorkflowObject()
+    wfobj.workflow_id = wf_id
+    wfobj.custom_metadata = {"workflow_result": wf_result, "job_output": job_output}
+    db_api.insert_or_update_workflow(wfobj)
+
+    # Retrieving full wf info
+    wfobj = db_api.get_workflow(wf_id)
+
+    dump_file = os.path.join(rep_dir, f"db_dump_tasks_wf_{wf_id}.zip")
+    db_api.dump_to_file(
+        filter={"workflow_id": wf_id}, output_file=dump_file, should_zip=True
+    )
+    wf_obj_file = os.path.join(rep_dir, f"wf_obj_{wf_id}")
+    with open(wf_obj_file, "w") as json_file:
+        json.dump(wfobj.to_dict(), json_file, indent=2)
+
+    print(f"Saved files {dump_file} and {wf_obj_file}.")
