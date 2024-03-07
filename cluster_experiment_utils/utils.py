@@ -1,6 +1,13 @@
 import subprocess
 from time import sleep
 import itertools
+import shutil
+
+from cluster_experiment_utils.cluster_utils.base_cluster_utils import (
+    ResourceManager,
+    Runner,
+)
+from cluster_experiment_utils.conf import RESOURCE_MANAGER
 
 
 def printed_sleep(secs):
@@ -22,6 +29,12 @@ def run_cmd(cmd: str):
 
 def _interpolate_values(start, end, step):
     return [start + i * step for i in range((end - start) // step + 1)]
+
+
+def replace_var_mapping_in_str(_str, variable_mapping):
+    for var_name in variable_mapping:
+        _str = _str.replace("${" + var_name + "}", str(variable_mapping[var_name]))
+    return _str
 
 
 def generate_configs(params):
@@ -71,3 +84,23 @@ def generate_configs(params):
         result.append(config)
 
     return result
+
+
+def get_resource_manager_type():
+    if shutil.which("sbatch") is not None:
+        return ResourceManager.SLURM
+    elif shutil.which("bsub") is not None:
+        return ResourceManager.LSF
+    elif shutil.which("qsub") is not None:
+        return ResourceManager.PBS
+    else:
+        return "unknown"
+
+
+def get_runner_type():
+    if RESOURCE_MANAGER == ResourceManager.SLURM:
+        return Runner.SRUN
+    elif RESOURCE_MANAGER == ResourceManager.LSF:
+        return Runner.JSRUN
+    else:
+        return "unknown"

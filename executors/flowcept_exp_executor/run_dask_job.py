@@ -10,8 +10,6 @@ from datetime import datetime
 from omegaconf import OmegaConf, DictConfig
 
 from cluster_experiment_utils.cluster_utils.base_cluster_utils import BaseClusterUtils
-from cluster_experiment_utils.cluster_utils.lsf_utils import LsfUtils
-from cluster_experiment_utils.cluster_utils.slurm_utils import SlurmUtils
 from cluster_experiment_utils.flowcept_utils import (
     update_flowcept_settings,
     kill_dbs,
@@ -50,21 +48,19 @@ def parse_args():
     )
 
 
-def start_scheduler(
-    cluster_scheduler_type, preload_scheduler_cmd, rep_dir, scheduler_file
-):
+def start_scheduler(preload_scheduler_cmd, rep_dir, scheduler_file):
+    scheduler_cmd = f"dask scheduler {preload_scheduler_cmd} --interface='ib0' --no-dashboard --no-show --scheduler-file {scheduler_file}"  # TODO: check about this interface=íb0, not sure if we have this on Frontier.
+
     print("Starting Scheduler")
-    # Check if cluster_scheduler_type it is slurm or lsf and change accordingly below
-    run_cmd(
-        f"jsrun --gpu_per_rs 0 --nrs 1 --tasks_per_rs 1 "
-        f"--cpu_per_rs 1 --rs_per_host 1 "
-        f"-e individual "
-        f"--stdio_stdout {rep_dir}/scheduler_out.%h.%j.%t.%p "
-        f"--stdio_stderr {rep_dir}/scheduler_err.%h.%j.%t.%p "
-        f"dask scheduler "
-        f"{preload_scheduler_cmd} "
-        f"--interface='ib0' --no-dashboard --no-show "
-        f"--scheduler-file {scheduler_file} &"
+    cluster_utils = BaseClusterUtils.get_instance()
+    cluster_utils.run_job(
+        cmd=scheduler_cmd,
+        node_count=1,
+        process_count=1,
+        processes_per_node=1,
+        gpu_cores_per_process=0,
+        stderr=f"{rep_dir}/scheduler_err.%h.%j.%t.%p",
+        stdout=f"{rep_dir}/scheduler_out.%h.%j.%t.%p",
     )
     total_wait_time = 160  # in seconds
     print(
@@ -86,40 +82,43 @@ def start_scheduler(
         return False
 
 
-def start_workers(cluster_scheduler_type, nnodes, rep_dir, scheduler_file):
-    # Start Workers
-    # Each Summit node has 2 sockets, each socket with 21 physical cores (42 physical cores in total), each with 4 hardware threads.
-    NO_PHYSICAL_THREADS_PER_CORE = 4
-    NO_CPUS_PER_NODE = 42
+def start_workers_with_gpu(nnodes, n_gpus_per_node, gpu_type, rep_dir, scheduler_file):
+    # From: https://docs.olcf.ornl.gov/systems/frontier_user_guide.html
+    # Due to the unique architecture of Frontier compute nodes and the way
+    # that Slurm currently allocates GPUs and CPU cores to job steps,
+    # it is suggested that all 8 GPUs on a node are allocated to the job step
+    # to ensure that optimal bindings are possible.
+
+    if gpu_type == "amd":
+        visible_device = "ROCR_VISIBLE_DEVICES"
+    elif gpu_type == "nvidia":
+        visible_device = "CUDA_VISIBLE_DEVICES"
+    else:
+        raise ValueError("Unknown gpu")
+
     worker_logs = os.path.join(rep_dir, "worker_logs")
     os.makedirs(worker_logs, exist_ok=True)
-    n_workers = (
-        nnodes * NO_CPUS_PER_NODE - 1
-    )  # -1 because we leave 1 RS for the scheduler
-    for i in range(0, n_workers):
-        print(f"Starting worker {i}")
-        run_cmd(
-            f"jsrun --nrs 1 "
-            f"--rs_per_host 1 "  # create one RS per physical core
-            f"--cpu_per_rs 1 "  # 1 dask worker per physical core
-            f"--gpu_per_rs 0 "  # we dont use gpu
-            f"--tasks_per_rs 1 "  # 1 dask worker per physical core
-            f"--smpiargs='none' "
-            f"-e individual "
-            f"--stdio_stdout {worker_logs}/worker_out.%h.%j.%t.%p "
-            f"--stdio_stderr {worker_logs}/worker_err.%h.%j.%t.%p "
-            f"--latency_priority cpu-cpu "
-            # f"-bpacked:4 "
-            f"dask worker --nthreads {NO_PHYSICAL_THREADS_PER_CORE} --nworkers 1 --interface ib0 --no-dashboard  --scheduler-file '{scheduler_file}' &"
-        )
+    cluster_utils = BaseClusterUtils.get_instance()
 
-    print(f"\n\nDone starting {n_workers} workers. Let's just wait some time...\n\n")
+    for i in range(nnodes):
+        for j in range(n_gpus_per_node):
+            stdout = os.path.join(worker_logs, f"worker_{i}_{j}.out")
+            stderr = os.path.join(worker_logs, f"worker_{i}_{j}.err")
+            worker_cmd = f"""
+            export {visible_device}='{j}' &&
+            dask worker --nthreads 1 --nworkers 1 --interface ib0 --no-dashboard  --scheduler-file {scheduler_file} > {stdout} 2> {stderr} &
+            """
+            cluster_utils.run_job(worker_cmd, node_count=1, processes_per_node=1)
+
+    print(
+        f"\n\nDone starting {nnodes*n_gpus_per_node} workers. Let's just wait some time...\n\n"
+    )
     printed_sleep(30)
 
 
 def start_client(conf_data, varying_param_key, with_flowcept_arg):
     print("Starting the Client")
-    python_client_command = conf_data.static_params.dask_client_script
+    python_client_command = conf_data.static_params.dask_user_workflow
     # TODO: what to change below?
     wf_params = conf_data["varying_params"][varying_param_key]["workflow_params"]
     # TODO: save them?
@@ -135,15 +134,8 @@ def start_client(conf_data, varying_param_key, with_flowcept_arg):
     return t_c_f, t_c_i
 
 
-def start_flowcept(
-    cluster_utils,
-    exp_conf,
-    job_hosts,
-    rep_dir,
-    varying_param_key,
-):
-    container_images_dir = exp_conf.static_params.container_images_dir
-    redis_image = os.path.join(container_images_dir, "redis.sif")
+def start_flowcept(exp_conf, job_hosts, rep_dir, varying_param_key):
+    cluster_utils = BaseClusterUtils.get_instance()
     should_start_mongo = exp_conf.static_params.start_mongo
     flowcept_base_settings_path = exp_conf["static_params"][
         "flowcept_base_settings_path"
@@ -151,8 +143,10 @@ def start_flowcept(
     dask_scheduler_setup_path = exp_conf["static_params"]["dask_scheduler_setup_path"]
     preload_scheduler_cmd = f"--preload {dask_scheduler_setup_path}"
     flowcept_settings = OmegaConf.load(Path(flowcept_base_settings_path))
-    # On Summit, the first node, ie the [0] in host_counts below, is
-    # a batch node. We're forcing here the db to run on a compute node.
+
+    # Sometimes, like on Summit, the 0th node is not a compute node.
+    # Here we are setting the 1st node to be the DB host for Redis and Mongo
+    # (if we want to start mongo in this script)
     db_host = list(job_hosts.keys())[1]
     print(f"DB Host: {db_host}")
     job_id = cluster_utils.get_this_job_id()
@@ -166,10 +160,11 @@ def start_flowcept(
         job_id,
     )
     kill_dbs(db_host, should_start_mongo)
-    start_redis(db_host, redis_image)
+    redis_start_command = exp_conf.static_params.redis_start_command
+    start_redis(db_host, redis_start_command)
     if should_start_mongo:
-        mongo_image = os.path.join(container_images_dir, "mongo.sif")
-        start_mongo(db_host, mongo_image, rep_dir)
+        mongo_start_cmd = exp_conf.static_params.mongo_start_command
+        start_mongo(db_host, mongo_start_cmd, rep_dir)
 
     from flowcept import FlowceptConsumerAPI
 
@@ -179,18 +174,19 @@ def start_flowcept(
 
 
 def main(
-    cluster_utils: BaseClusterUtils,
     exp_conf: DictConfig,
     varying_param_key: str,
     my_job_id,
     rep_no: int,
 ):
-    cluster_scheduler_type = exp_conf.scheduler_type
+    cluster_utils = BaseClusterUtils.get_instance()
     proj_dir = exp_conf.static_params.proj_dir
     job_dir = os.path.join(proj_dir, "exps", my_job_id)
     rep_dir = os.path.join(job_dir, str(rep_no))
     os.makedirs(rep_dir, exist_ok=True)
     nnodes = exp_conf.varying_params[varying_param_key].get("nnodes")
+    n_gpus_per_node = exp_conf.static_params.get("n_gpus_per_node")
+    gpu_type = exp_conf.static_params.get("gpu_type")
     scheduler_file = os.path.join(rep_dir, "scheduler_info.json")
 
     with_flowcept = exp_conf.varying_params[varying_param_key].get(
@@ -205,7 +201,7 @@ def main(
     print(f"Using python: {python_env}")  # TODO: save this in the workflow?
 
     job_hosts = cluster_utils.get_job_hosts()
-    host_allocs = {}  # not sure if we are going to need this
+    host_allocs = {}  # TODO: not sure if we are going to need this
     preload_scheduler_cmd = ""
 
     t0 = time()
@@ -216,20 +212,14 @@ def main(
     flowcept_settings = None
     if with_flowcept:
         consumer, flowcept_settings, preload_scheduler_cmd = start_flowcept(
-            cluster_utils,
-            exp_conf,
-            job_hosts,
-            rep_dir,
-            varying_param_key,
+            exp_conf, job_hosts, rep_dir, varying_param_key
         )
 
-    if not start_scheduler(
-        cluster_scheduler_type, preload_scheduler_cmd, rep_dir, scheduler_file
-    ):
+    if not start_scheduler(preload_scheduler_cmd, rep_dir, scheduler_file):
         return -1
 
     printed_sleep(3)
-    start_workers(cluster_scheduler_type, nnodes, rep_dir, scheduler_file)
+    start_workers_with_gpu(nnodes, n_gpus_per_node, gpu_type, rep_dir, scheduler_file)
 
     t_c_f, t_c_i = start_client(exp_conf, varying_param_key, with_flowcept_arg)
     print("Workflow done!")
@@ -274,18 +264,9 @@ if __name__ == "__main__":
 
     exp_conf = OmegaConf.load(Path(args.conf))
 
-    if exp_conf.scheduler_type == "lsf":
-        cluster_utils = LsfUtils()
-    elif exp_conf.scheduler_type == "slurm":
-        cluster_utils = SlurmUtils()
-    else:
-        raise NotImplementedError()
-
     nreps = exp_conf.varying_params[args.varying_param_key]["nreps"]
-
     for rep_no in range(nreps):
         main(
-            cluster_utils=cluster_utils,
             exp_conf=exp_conf,
             varying_param_key=args.varying_param_key,
             my_job_id=args.my_job_id,
@@ -298,5 +279,5 @@ if __name__ == "__main__":
     with open(os.path.join(job_dir, "SUCCESS"), "w") as f:
         f.write(datetime.utcnow().strftime("%Y-%m-%d %H-%M-%S.%f")[:-3])
 
-    cluster_utils.kill_this_job()
+    BaseClusterUtils.get_instance().kill_this_job()
     sys.exit(0)

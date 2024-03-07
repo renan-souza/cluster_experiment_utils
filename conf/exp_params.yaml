@@ -1,8 +1,11 @@
 static_params:
-  scheduler_type: slurm
   project_id: STF001
-  dask_client_script: aaaa.py --abc=${abc_val} # script where we have client.submit
+  gpu_type: amd
+  n_gpus_per_node: 8
+  dask_user_workflow: aaaa.py --abc=${abc_val} # script where we have the actual user workflow (ie client.submit)
   job_execution_script: /gpfs/alpine/stf219/scratch/souzar/flowcept-exps/summit/synthetic_simple/flowcept_dask_job_execution.py
+  mongo_start_command: /lustre/orion/stf219/scratch/souzar/dependency_software/mongodb-linux-x86_64-suse15-7.0.6/bin/mongod --dbpath ${MONGO_DATA} --logpath ${MONGO_LOG}
+  redis_start_command: /lustre/orion/stf219/scratch/souzar/dependency_software/redis-stack-server-7.2.0-v8/bin/redis-server redis.conf
   queue: debug
   job_name: flowcept_synthetic
   proj_dir: /gpfs/alpine/stf219/scratch/souzar/flowcept-exps/summit/synthetic_simple
@@ -12,7 +15,7 @@ static_params:
   dask_scheduler_setup_path: /gpfs/alpine/stf219/scratch/souzar/flowcept/resources/dask_scheduler_setup.py
   flowcept_log_level: error
   user: souzar
-  experiment_id: flowcept_synthetic
+  experiment_id: flowcept_llm
   start_mongo: true
 
 varying_params:
@@ -21,7 +24,6 @@ varying_params:
     wall_time: "0:10"
     nnodes: 1
     nreps: 1
-    mongo_cores: 14
     with_flowcept: true
     notes: test
     synthetic_workflow_params:

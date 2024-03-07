@@ -1,21 +1,21 @@
 import os
-import re
-from typing import Dict
 
-from cluster_experiment_utils.cluster_utils.base_cluster_utils import BaseClusterUtils
+
+from cluster_experiment_utils.cluster_utils.base_cluster_utils import (
+    BaseClusterUtils,
+)
 from cluster_experiment_utils.utils import run_cmd_check_output
 
 
-# TODO this class is currently just a copy of the lsf utils. Need to implement correctly.
 class SlurmUtils(BaseClusterUtils):
     def get_this_job_id(self):
-        return os.getenv("LSB_JOBID")
+        return os.getenv("SLURM_JOB_ID")
 
     def kill_job(self, job_id=None):
         if job_id is None:
             job_id = self.get_this_job_id()
         print("Killing LSF job")
-        run_cmd_check_output(f"bkill {job_id}")
+        run_cmd_check_output(f"scancel {job_id}")
         print("Kill command submitted!")
 
     def get_job_hosts(self):
@@ -23,11 +23,12 @@ class SlurmUtils(BaseClusterUtils):
         Gets a mapping of job hosts and number of available cores per host
         :return:
         """
-        hosts = os.getenv("LSB_HOSTS")
+        # TODO : revisit this
+        hosts = os.getenv("SLURM_JOB_NODELIST")
         if hosts is not None:
             lsb_hosts = hosts.split()
         else:
-            host_file = os.getenv("LSB_DJOB_HOSTFILE")
+            host_file = os.getenv("SLURM_JOB_NODEFILE")
             with open(host_file) as f:
                 lsb_hosts = f.read().split("\n")
 
@@ -41,41 +42,43 @@ class SlurmUtils(BaseClusterUtils):
                 host_counts[h] += 1
         print(host_counts)
         return host_counts
+        #
+        # def get_resource_usage_info(self, job_dir) -> Dict:
+        #     return {}
+        #     lsf_job_id = os.getenv("LSB_JOBID")
+        #     output = run_cmd_check_output(f"bjobs -l {lsf_job_id}")
+        #     with open(f"{job_dir}/resources_usage.txt", "a+") as f:
+        #         f.write(output)
+        #
+        #     float_point_regex = "[+-]?([0-9]*[.])?[0-9]+"
+        #     match = re.search(
+        #         r"CPU time used is (" + float_point_regex + ") seconds", output
+        #     )
+        #     cpu_time = -1
+        #     if match:
+        #         cpu_time = float(match.group(1))
+        #
+        #     match = re.search(r"MAX MEM: (\d+) Mbytes", output)
+        #     max_mem = -1
+        #     if match:
+        #         max_mem = int(match.group(1))
+        #
+        #     match = re.search(r"AVG MEM: (\d+) Mbytes", output)
+        #     avg_mem = -1
+        #     if match:
+        #         avg_mem = int(match.group(1))
+        #
+        #     match = re.search(r"Submitted from host <([a-zA-Z0-9]+)>", output)
+        #     from_host = None
+        #     if match:
+        #         from_host = match.group(1)
 
-    def get_resource_usage_info(self, job_dir) -> Dict:
-        lsf_job_id = os.getenv("LSB_JOBID")
-        output = run_cmd_check_output(f"bjobs -l {lsf_job_id}")
-        with open(f"{job_dir}/resources_usage.txt", "a+") as f:
-            f.write(output)
-
-        float_point_regex = "[+-]?([0-9]*[.])?[0-9]+"
-        match = re.search(
-            r"CPU time used is (" + float_point_regex + ") seconds", output
-        )
-        cpu_time = -1
-        if match:
-            cpu_time = float(match.group(1))
-
-        match = re.search(r"MAX MEM: (\d+) Mbytes", output)
-        max_mem = -1
-        if match:
-            max_mem = int(match.group(1))
-
-        match = re.search(r"AVG MEM: (\d+) Mbytes", output)
-        avg_mem = -1
-        if match:
-            avg_mem = int(match.group(1))
-
-        match = re.search(r"Submitted from host <([a-zA-Z0-9]+)>", output)
-        from_host = None
-        if match:
-            from_host = match.group(1)
-
+        # TODO: implement
         return {
-            "lsf_cpu_time": cpu_time,
-            "lsf_max_mem_mb": max_mem,
-            "lsf_avg_mem_mb": avg_mem,
-            "from_host": from_host,
+            "lsf_cpu_time": 0,
+            "lsf_max_mem_mb": 0,
+            "lsf_avg_mem_mb": 0,
+            "from_host": 0,
         }
 
     def __init__(self):

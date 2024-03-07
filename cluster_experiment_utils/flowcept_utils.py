@@ -1,18 +1,17 @@
 import json
 import os
-import sys
-from flowcept import TaskQueryAPI, DBAPI, WorkflowObject
-from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict
 
 from omegaconf import OmegaConf, DictConfig
 
-from cluster_experiment_utils.utils import printed_sleep, run_cmd
+from flowcept import TaskQueryAPI, DBAPI, WorkflowObject
 
-
-# def test_mongo(flowcept_settings, wf_result):
-#     # we can implement this using flowcept db api to query the db
+from cluster_experiment_utils.utils import (
+    printed_sleep,
+    run_cmd,
+    replace_var_mapping_in_str,
+)
 
 
 def omegaconf_simple_variable_mapping(
@@ -25,10 +24,7 @@ def omegaconf_simple_variable_mapping(
     :return:
     """
     conf_str = OmegaConf.to_yaml(conf)
-    for var_name in variable_mapping:
-        conf_str = conf_str.replace(
-            "${" + var_name + "}", str(variable_mapping[var_name])
-        )
+    conf_str = replace_var_mapping_in_str(conf_str, variable_mapping)
     return OmegaConf.create(conf_str)
 
 
@@ -79,23 +75,24 @@ def kill_dbs(db_host, should_start_mongo):
     printed_sleep(5)
 
 
-def start_mongo(db_host, mongo_image, rep_dir):
+def start_mongo(db_host, mongo_start_cmd, rep_dir):
     print("Starting MongoDB...")
     mongo_data_dir = os.path.join(rep_dir, "mongo_data")
-    os.makedirs(mongo_data_dir, exist_ok=True)
-    os.makedirs(os.path.join(mongo_data_dir, "db"), exist_ok=True)
-    run_cmd(
-        f"ssh {db_host} singularity run --bind {mongo_data_dir}:/data {mongo_image} --logpath {rep_dir}/mongo.log & "
-    )
-    printed_sleep(10)
+    mongo_data_dir_db = os.path.join(mongo_data_dir, "db")
+    os.makedirs(mongo_data_dir_db, exist_ok=True)
+    mongo_log = os.path.join(mongo_data_dir, "mongo.log")
+    open(mongo_log, "w").close()
+
+    variable_mapping = {"MONGO_DATA": mongo_data_dir_db, "MONGO_LOG": mongo_log}
+    mongo_start_cmd = replace_var_mapping_in_str(mongo_start_cmd, variable_mapping)
+    run_cmd(f"ssh {db_host} {mongo_start_cmd} & ")
+    printed_sleep(5)
     print("Mongo UP!")
 
 
-def start_redis(db_host, redis_image, redis_conf_file):
+def start_redis(db_host, redis_start_cmd):
     print("Starting Redis")
-    run_cmd(
-        f"ssh {db_host} singularity run --bind {redis_conf_file}:/usr/local/etc/redis/redis.conf {redis_image} redis-server /usr/local/etc/redis/redis.conf &"
-    )
+    run_cmd(f"ssh {db_host} {redis_start_cmd} &")
     printed_sleep(2)
     print("Done starting Redis.")
 
