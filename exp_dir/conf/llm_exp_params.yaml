@@ -3,6 +3,7 @@ static_params:
   gpu_type: amd
   n_gpus_per_node: 2
   dask_user_workflow: /lustre/orion/stf219/scratch/souzar/cluster_experiment_utils/executors/dask_workflows/simple_dask_workflow.py --scheduler-file=$[scheduler-file_val] --rep-dir=$[rep-dir_val]  
+  dask_workers_startup_wait_in_sec: 5
   job_execution_script: /lustre/orion/stf219/scratch/souzar/cluster_experiment_utils/executors/flowcept_exp_executor/run_dask_job.py
   mongo_start_command: /lustre/orion/stf219/scratch/souzar/dependency_software/mongodb-linux-x86_64-suse15-7.0.6/bin/mongod --bind_ip_all --dbpath $[MONGO_DATA] --logpath $[MONGO_LOG]
   redis_start_command: /lustre/orion/stf219/scratch/souzar/dependency_software/redis-stack-server-7.2.0-v8/bin/redis-server /lustre/orion/stf219/scratch/souzar/cluster_experiment_utils/exp_dir/conf/redis.conf
@@ -35,9 +36,9 @@ varying_params:
     #    sleep_time: 1
     adapters:
       dask:
-        worker_should_get_input: false
+        worker_should_get_input: true
         scheduler_should_get_input: true
         worker_should_get_output: true
-        scheduler_create_timestamps: false
-        worker_create_timestamps: false
+        scheduler_create_timestamps: true
+        worker_create_timestamps: true
 

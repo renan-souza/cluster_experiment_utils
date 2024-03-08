@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 from uuid import uuid4
 from typing import Dict, Union
 
+from omegaconf import OmegaConf
 import psij
 
 from cluster_experiment_utils.utils import get_resource_manager_type, get_runner_type
@@ -245,13 +246,10 @@ class BaseClusterUtils(object, metaclass=ABCMeta):
 
     def generate_job_output(
         self,
-        cluster_utils,
         conf_data,
-        host_allocs,
-        host_counts,
+        job_hosts,
         job_dir,
         my_job_id,
-        scheduler_job_id,
         proj_dir,
         python_env,
         rep_dir,
@@ -263,14 +261,14 @@ class BaseClusterUtils(object, metaclass=ABCMeta):
         varying_param_key,
         wf_result,
         with_flowcept,
-        flowcept_settings,
+        flowcept_settings
     ):
         out_job = {
             "my_job_id": my_job_id,
             "job_dir": job_dir,
             "rep_dir": rep_dir,
-            "lsf_job_id": scheduler_job_id,
-            "lsb_hosts": host_counts,
+            "job_id": self.get_this_job_id(),
+            "job_hosts": job_hosts,
             "varying_param_key": varying_param_key,
             "rep_no": rep_no,
             "with_flowcept": with_flowcept,
@@ -279,23 +277,14 @@ class BaseClusterUtils(object, metaclass=ABCMeta):
             "total_time": t1 - t0,
             "client_time": t_c_f - t_c_i,
         }
-
-        resource_usage = None
-        # TODO
-        # try:
-        #     resource_usage = cluster_utils.get_resource_usage_info(rep_dir)
-        # except Exception as e:
-        #     print("Could not retrieve resource usage")
-        #     print(e)
-
         if wf_result is not None:
             out_job["wf_result"] = wf_result
-        out_job["exp_settings"] = conf_data
+        out_job["exp_settings"] = OmegaConf.to_container(conf_data)
         if flowcept_settings is not None:
-            out_job["flowcept_settings"] = flowcept_settings
-        out_job.update(host_allocs)
-        if resource_usage is not None:
-            out_job.update(resource_usage)
+            out_job["flowcept_settings"] = OmegaConf.to_container(flowcept_settings)
+        for k in out_job:
+            print(k, type(out_job[k]), out_job[k])
+            print()
         print(json.dumps(out_job, indent=2))
         with open(f"{rep_dir}/out_job.json", "w") as f:
             f.write(json.dumps(out_job, indent=2) + "\n")

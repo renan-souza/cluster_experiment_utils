@@ -105,22 +105,16 @@ def start_redis(db_host, redis_start_cmd):
 
 
 def test_data_and_persist(rep_dir, wf_result, job_output):
-    print("Going to import DBAPI")
     from flowcept import DBAPI
-    print("Done.")
-    print("Going to import WorkflowObject")
     from flowcept import WorkflowObject
-    print("Done.")
-    print("Going to import TaskQueryAPI")
     from flowcept import TaskQueryAPI
-    print("Done.")
     api = TaskQueryAPI()
 
     wf_id = wf_result.get("workflow_id")
     docs = api.query(filter={"workflow_id": wf_id})
 
     if len(docs):
-        print("Found docs!")
+        print("Great! Found docs with the workflow_id in the tasks collection.")
 
     db_api = DBAPI()
     wfobj = WorkflowObject()
@@ -135,7 +129,7 @@ def test_data_and_persist(rep_dir, wf_result, job_output):
     db_api.dump_to_file(
         filter={"workflow_id": wf_id}, output_file=dump_file, should_zip=True
     )
-    wf_obj_file = os.path.join(rep_dir, f"wf_obj_{wf_id}")
+    wf_obj_file = os.path.join(rep_dir, f"wf_obj_{wf_id}.json")
     with open(wf_obj_file, "w") as json_file:
         json.dump(wfobj.to_dict(), json_file, indent=2)
 

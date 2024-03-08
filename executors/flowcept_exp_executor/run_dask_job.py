@@ -40,9 +40,15 @@ def parse_args():
     )
 
 
-def start_scheduler(preload_scheduler_cmd, rep_dir, scheduler_file):
-    
-    scheduler_cmd = f"dask scheduler {preload_scheduler_cmd}  --no-dashboard --no-show --scheduler-file {scheduler_file}"  
+def start_scheduler(preload_scheduler_cmd, rep_dir, scheduler_file, gpu_type):
+    if gpu_type == "amd":
+        visible_device = "export ROCR_VISIBLE_DEVICES=''"
+    elif gpu_type == "nvidia":
+        visible_device = "export CUDA_VISIBLE_DEVICES=''"
+    else:
+        raise ValueError("Unknown gpu")
+
+    scheduler_cmd = f"{visible_device} && dask scheduler {preload_scheduler_cmd}  --no-dashboard --no-show --scheduler-file {scheduler_file}"  
     # TODO: check about this # --interface='ib0', not sure if we have this on Frontier.
 
     print("Starting Scheduler")
@@ -76,7 +82,7 @@ def start_scheduler(preload_scheduler_cmd, rep_dir, scheduler_file):
         return False
 
 
-def start_workers_with_gpu(nnodes, n_gpus_per_node, gpu_type, rep_dir, scheduler_file):
+def start_workers_with_gpu(nnodes, n_gpus_per_node, gpu_type, rep_dir, scheduler_file, dask_workers_startup_wait_in_sec):
     # From: https://docs.olcf.ornl.gov/systems/frontier_user_guide.html
     # Due to the unique architecture of Frontier compute nodes and the way
     # that Slurm currently allocates GPUs and CPU cores to job steps,
@@ -103,12 +109,12 @@ def start_workers_with_gpu(nnodes, n_gpus_per_node, gpu_type, rep_dir, scheduler
             worker_cmd = f"export {visible_device}={j} && dask worker --nthreads 1 --nworkers 1 --no-dashboard  --scheduler-file {scheduler_file} > {stdout} 2> {stderr} "
             worker_cmds.append(worker_cmd)
         worker_cmds_str = " && ".join(worker_cmds)
-        cluster_utils.run_job(worker_cmd, node_count=1, processes_per_node=n_gpus_per_node, gpus_per_job=n_gpus_per_node)
+        cluster_utils.run_job(worker_cmds_str, node_count=1, processes_per_node=n_gpus_per_node, gpus_per_job=n_gpus_per_node)
 
     print(
         f"\n\nDone starting {nnodes*n_gpus_per_node} workers. Let's just wait some time...\n\n"
     )
-    printed_sleep(30)
+    printed_sleep(dask_workers_startup_wait_in_sec)
 
 
 def start_client(conf_data, varying_param_key, rep_dir, scheduler_file, with_flowcept_arg):
@@ -172,6 +178,7 @@ def start_flowcept(exp_conf, job_hosts, rep_dir, varying_param_key):
     flowcept_settings_path = os.path.join(rep_dir, "flowcept_settings.yaml")
     os.environ["FLOWCEPT_SETTINGS_PATH"] = flowcept_settings_path
     kill_dbs(db_host, should_start_mongo)
+    printed_sleep(6)
     redis_start_command = exp_conf.static_params.redis_start_command
     start_redis(db_host, redis_start_command)
     if should_start_mongo:
@@ -201,6 +208,7 @@ def main(
     os.makedirs(rep_dir, exist_ok=True)
     nnodes = exp_conf.varying_params[varying_param_key].get("nnodes")
     n_gpus_per_node = exp_conf.static_params.get("n_gpus_per_node")
+    dask_workers_startup_wait_in_sec = exp_conf.static_params.dask_workers_startup_wait_in_sec
     gpu_type = exp_conf.static_params.get("gpu_type")
     scheduler_file = os.path.join(rep_dir, "scheduler_info.json")
 
@@ -213,10 +221,9 @@ def main(
     os.environ["LC_ALL"] = "C"
     os.environ["LANG"] = "C"
     python_env = run_cmd_check_output("which python")
-    print(f"Using python: {python_env}")  # TODO: save this in the workflow?
+    print(f"Using python: {python_env}") 
 
-    job_hosts = cluster_utils.get_job_hosts()
-    host_allocs = {}  # TODO: not sure if we are going to need this
+    job_hosts = cluster_utils.get_job_hosts()    
     preload_scheduler_cmd = ""
 
     t0 = time()    
@@ -229,11 +236,11 @@ def main(
             exp_conf, job_hosts, rep_dir, varying_param_key
         )
 
-    if not start_scheduler(preload_scheduler_cmd, rep_dir, scheduler_file):
+    if not start_scheduler(preload_scheduler_cmd, rep_dir, scheduler_file, gpu_type):
         return -1
 
     printed_sleep(3)
-    start_workers_with_gpu(nnodes, n_gpus_per_node, gpu_type, rep_dir, scheduler_file)
+    start_workers_with_gpu(nnodes, n_gpus_per_node, gpu_type, rep_dir, scheduler_file, dask_workers_startup_wait_in_sec)
 
     t_c_f, t_c_i = start_client(exp_conf, varying_param_key, rep_dir, scheduler_file, with_flowcept_arg)
     print("Workflow done!")
@@ -241,34 +248,32 @@ def main(
         print("Now going to gracefully stop everything")
         consumer.stop()
 
-    # with open(f"{rep_dir}/workflow_result.json", "r") as infile:
-    #     wf_result = json.load(infile)
+    with open(f"{rep_dir}/workflow_result.json", "r") as infile:
+        wf_result = json.load(infile)
 
-    # t1 = time()
-    # job_output = cluster_utils.generate_job_output(
-    #     cluster_utils,
-    #     exp_conf,
-    #     host_allocs,
-    #     job_hosts,
-    #     job_dir,
-    #     my_job_id,
-    #     proj_dir,
-    #     python_env,
-    #     rep_dir,
-    #     rep_no,
-    #     t0,
-    #     t1,
-    #     t_c_f,
-    #     t_c_i,
-    #     varying_param_key,
-    #     wf_result,
-    #     with_flowcept,
-    #     flowcept_settings,
-    # )
+    t1 = time()
+    job_output = cluster_utils.generate_job_output(
+        exp_conf,
+        job_hosts,
+        job_dir,
+        my_job_id,
+        proj_dir,
+        python_env,
+        rep_dir,
+        rep_no,
+        t0,
+        t1,
+        t_c_f,
+        t_c_i,
+        varying_param_key,
+        wf_result,
+        with_flowcept,
+        flowcept_settings
+    )
 
-    # if with_flowcept:
-        #from cluster_experiment_utils.flowcept_utils import test_data_and_persist
-        #test_data_and_persist(rep_dir, wf_result, job_output)
+    if with_flowcept:
+        from cluster_experiment_utils.flowcept_utils import test_data_and_persist
+        test_data_and_persist(rep_dir, wf_result, job_output)
 
     print("All done. Going to kill all runnnig job steps.")
     cluster_utils.kill_all_running_job_steps()
