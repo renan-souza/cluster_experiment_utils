@@ -21,7 +21,7 @@ class LsfUtils(BaseClusterUtils):
     def kill_all_running_job_steps(self):
         print("Killing all jsrun jobs")
         run_cmd_check_output(f"jskill all")
-    
+
     def run_job(
         self,
         cmd,
@@ -34,21 +34,28 @@ class LsfUtils(BaseClusterUtils):
         gpus_per_job=None,
     ):
         jsrun_command = [
-            'jsrun',
-            '--nrs', str(node_count) if node_count else '1',
-            '--tasks_per_rs', str(process_count) if process_count else '1',
-            '--tasks_per_host', str(processes_per_node) if processes_per_node else '1',
-            '--cpu_per_rs', str(cpu_cores_per_process) if cpu_cores_per_process else '1',
-            '--gpu_per_rs', str(gpu_cores_per_process) if gpu_cores_per_process else '0',
-            '--stdout', stdout,
-            '--stderr', stderr,
+            "jsrun",
+            "--nrs",
+            str(node_count) if node_count else "1",
+            "--tasks_per_rs",
+            str(process_count) if process_count else "1",
+            "--tasks_per_host",
+            str(processes_per_node) if processes_per_node else "1",
+            "--cpu_per_rs",
+            str(cpu_cores_per_process) if cpu_cores_per_process else "1",
+            "--gpu_per_rs",
+            str(gpu_cores_per_process) if gpu_cores_per_process else "0",
+            "--stdout",
+            stdout,
+            "--stderr",
+            stderr,
         ]
-    
+
         jsrun_command += cmd
         print(jsrun_command)
         process = subprocess.Popen(jsrun_command)
         return process
-    
+
     def get_job_hosts(self):
         hosts = os.getenv("LSB_HOSTS")
         if hosts is not None:
@@ -107,5 +114,6 @@ class LsfUtils(BaseClusterUtils):
 
     def __init__(self):
         super().__init__()
+
 
 BaseClusterUtils.register_subclass("lsf", LsfUtils)

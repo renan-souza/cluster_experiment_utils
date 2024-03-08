@@ -48,7 +48,7 @@ def start_scheduler(preload_scheduler_cmd, rep_dir, scheduler_file, gpu_type):
     else:
         raise ValueError("Unknown gpu")
 
-    scheduler_cmd = f"{visible_device} && dask scheduler {preload_scheduler_cmd}  --no-dashboard --no-show --scheduler-file {scheduler_file}"  
+    scheduler_cmd = f"{visible_device} && dask scheduler {preload_scheduler_cmd}  --no-dashboard --no-show --scheduler-file {scheduler_file}"
     # TODO: check about this # --interface='ib0', not sure if we have this on Frontier.
 
     print("Starting Scheduler")
@@ -82,7 +82,14 @@ def start_scheduler(preload_scheduler_cmd, rep_dir, scheduler_file, gpu_type):
         return False
 
 
-def start_workers_with_gpu(nnodes, n_gpus_per_node, gpu_type, rep_dir, scheduler_file, dask_workers_startup_wait_in_sec):
+def start_workers_with_gpu(
+    nnodes,
+    n_gpus_per_node,
+    gpu_type,
+    rep_dir,
+    scheduler_file,
+    dask_workers_startup_wait_in_sec,
+):
     # From: https://docs.olcf.ornl.gov/systems/frontier_user_guide.html
     # Due to the unique architecture of Frontier compute nodes and the way
     # that Slurm currently allocates GPUs and CPU cores to job steps,
@@ -109,7 +116,12 @@ def start_workers_with_gpu(nnodes, n_gpus_per_node, gpu_type, rep_dir, scheduler
             worker_cmd = f"export {visible_device}={j} && dask worker --nthreads 1 --nworkers 1 --no-dashboard  --scheduler-file {scheduler_file} > {stdout} 2> {stderr} "
             worker_cmds.append(worker_cmd)
         worker_cmds_str = " && ".join(worker_cmds)
-        cluster_utils.run_job(worker_cmds_str, node_count=1, processes_per_node=n_gpus_per_node, gpus_per_job=n_gpus_per_node)
+        cluster_utils.run_job(
+            worker_cmds_str,
+            node_count=1,
+            processes_per_node=n_gpus_per_node,
+            gpus_per_job=n_gpus_per_node,
+        )
 
     print(
         f"\n\nDone starting {nnodes*n_gpus_per_node} workers. Let's just wait some time...\n\n"
@@ -117,25 +129,30 @@ def start_workers_with_gpu(nnodes, n_gpus_per_node, gpu_type, rep_dir, scheduler
     printed_sleep(dask_workers_startup_wait_in_sec)
 
 
-def start_client(conf_data, varying_param_key, rep_dir, scheduler_file, with_flowcept_arg):
+def start_client(
+    conf_data, varying_param_key, rep_dir, scheduler_file, with_flowcept_arg
+):
     print("Starting the Client")
     python_client_command = "python " + conf_data.static_params.dask_user_workflow
 
-    wf_params = conf_data["varying_params"][varying_param_key].get("workflow_params", {})
-    wf_params.update({
-        "rep-dir": rep_dir,
-        "scheduler-file": scheduler_file,        
-    })
-    
+    wf_params = conf_data["varying_params"][varying_param_key].get(
+        "workflow_params", {}
+    )
+    wf_params.update(
+        {
+            "rep-dir": rep_dir,
+            "scheduler-file": scheduler_file,
+        }
+    )
+
     for k, v in wf_params.items():
         python_client_command = python_client_command.replace("$[" + k + "_val]", v)
 
-    
     python_client_command += " " + with_flowcept_arg
 
     print("Command after replacements")
     print(python_client_command)
-    
+
     t_c_i = time()
     run_cmd_check_output(python_client_command)
 
@@ -150,8 +167,9 @@ def start_flowcept(exp_conf, job_hosts, rep_dir, varying_param_key):
         update_flowcept_settings,
         kill_dbs,
         start_redis,
-        start_mongo
+        start_mongo,
     )
+
     print("Done importing.")
 
     cluster_utils = BaseClusterUtils.get_instance()
@@ -201,14 +219,16 @@ def main(
     cluster_utils = BaseClusterUtils.get_instance()
     print("Killing old job steps")
     cluster_utils.kill_all_running_job_steps()
-    
+
     proj_dir = exp_conf.static_params.proj_dir
     job_dir = os.path.join(proj_dir, "exps", my_job_id)
     rep_dir = os.path.join(job_dir, str(rep_no))
     os.makedirs(rep_dir, exist_ok=True)
     nnodes = exp_conf.varying_params[varying_param_key].get("nnodes")
     n_gpus_per_node = exp_conf.static_params.get("n_gpus_per_node")
-    dask_workers_startup_wait_in_sec = exp_conf.static_params.dask_workers_startup_wait_in_sec
+    dask_workers_startup_wait_in_sec = (
+        exp_conf.static_params.dask_workers_startup_wait_in_sec
+    )
     gpu_type = exp_conf.static_params.get("gpu_type")
     scheduler_file = os.path.join(rep_dir, "scheduler_info.json")
 
@@ -221,12 +241,12 @@ def main(
     os.environ["LC_ALL"] = "C"
     os.environ["LANG"] = "C"
     python_env = run_cmd_check_output("which python")
-    print(f"Using python: {python_env}") 
+    print(f"Using python: {python_env}")
 
-    job_hosts = cluster_utils.get_job_hosts()    
+    job_hosts = cluster_utils.get_job_hosts()
     preload_scheduler_cmd = ""
 
-    t0 = time()    
+    t0 = time()
     printed_sleep(2)
 
     consumer = None
@@ -240,9 +260,18 @@ def main(
         return -1
 
     printed_sleep(3)
-    start_workers_with_gpu(nnodes, n_gpus_per_node, gpu_type, rep_dir, scheduler_file, dask_workers_startup_wait_in_sec)
+    start_workers_with_gpu(
+        nnodes,
+        n_gpus_per_node,
+        gpu_type,
+        rep_dir,
+        scheduler_file,
+        dask_workers_startup_wait_in_sec,
+    )
 
-    t_c_f, t_c_i = start_client(exp_conf, varying_param_key, rep_dir, scheduler_file, with_flowcept_arg)
+    t_c_f, t_c_i = start_client(
+        exp_conf, varying_param_key, rep_dir, scheduler_file, with_flowcept_arg
+    )
     print("Workflow done!")
     if consumer is not None:
         print("Now going to gracefully stop everything")
@@ -268,16 +297,16 @@ def main(
         varying_param_key,
         wf_result,
         with_flowcept,
-        flowcept_settings
+        flowcept_settings,
     )
 
     if with_flowcept:
         from cluster_experiment_utils.flowcept_utils import test_data_and_persist
+
         test_data_and_persist(rep_dir, wf_result, job_output)
 
     print("All done. Going to kill all runnnig job steps.")
     cluster_utils.kill_all_running_job_steps()
-    
 
 
 if __name__ == "__main__":
@@ -301,5 +330,5 @@ if __name__ == "__main__":
         f.write(datetime.utcnow().strftime("%Y-%m-%d %H-%M-%S.%f")[:-3])
 
     # TODO: uncomment
-    #BaseClusterUtils.get_instance().kill_this_job()
+    # BaseClusterUtils.get_instance().kill_this_job()
     sys.exit(0)

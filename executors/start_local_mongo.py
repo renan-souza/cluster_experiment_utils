@@ -8,9 +8,19 @@ from cluster_experiment_utils.flowcept_utils import start_mongo
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Process YAML configuration file and update with hostname.")
-    parser.add_argument("--exp_conf", required=True, help="Path to the exp_conf YAML configuration file.")
-    parser.add_argument("--flowcept_conf", required=True, help="Path to the flowcept_conf YAML configuration file.")
+    parser = argparse.ArgumentParser(
+        description="Process YAML configuration file and update with hostname."
+    )
+    parser.add_argument(
+        "--exp_conf",
+        required=True,
+        help="Path to the exp_conf YAML configuration file.",
+    )
+    parser.add_argument(
+        "--flowcept_conf",
+        required=True,
+        help="Path to the flowcept_conf YAML configuration file.",
+    )
     args = parser.parse_args()
 
     # Load YAML configuration using OmegaConf for flowcept_conf
@@ -25,17 +35,15 @@ def main():
     collection = db[flowcept_conf.mongodb.collection]
 
     # Perform a simple query to check the connection
-    print(f"Checking if MongoDB on host {host} is runnig. If it's down, it will wait until timeout.") 
+    print(
+        f"Checking if MongoDB on host {host} is runnig. If it's down, it will wait until timeout."
+    )
     try:
         result = collection.find_one()
         print(f"MongoDB on host {host} is already up!")
         return
     except Exception as e:
         print(e)
-        
-
-   
-    
 
     # Execute the start_mongo_cmd in exp_conf
     exp_conf = OmegaConf.load(args.exp_conf)

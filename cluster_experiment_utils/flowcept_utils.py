@@ -96,7 +96,6 @@ def start_mongo(db_host, mongo_start_cmd, rep_dir):
     print("Mongo UP!")
 
 
-
 def start_redis(db_host, redis_start_cmd):
     print("Starting Redis")
     run_cmd(f"ssh {db_host} {redis_start_cmd} &")
@@ -108,6 +107,7 @@ def test_data_and_persist(rep_dir, wf_result, job_output):
     from flowcept import DBAPI
     from flowcept import WorkflowObject
     from flowcept import TaskQueryAPI
+
     api = TaskQueryAPI()
 
     wf_id = wf_result.get("workflow_id")

@@ -24,27 +24,30 @@ class Runner:
 
 
 class BaseClusterUtils(object, metaclass=ABCMeta):
-
     _subclasses = {}
+
     @classmethod
     def register_subclass(cls, subclass_name, subclass):
         cls._subclasses[subclass_name] = subclass
 
     _instance = None
     RESOURCE_MANAGER = get_resource_manager_type()
-    
+
     @staticmethod
     def get_instance():
         if BaseClusterUtils._instance is not None:
             return BaseClusterUtils._instance
         else:
             if BaseClusterUtils.RESOURCE_MANAGER == ResourceManager.SLURM:
-                BaseClusterUtils._instance = BaseClusterUtils._subclasses.get(ResourceManager.SLURM)()
+                BaseClusterUtils._instance = BaseClusterUtils._subclasses.get(
+                    ResourceManager.SLURM
+                )()
             elif BaseClusterUtils.RESOURCE_MANAGER == ResourceManager.LSF:
-                BaseClusterUtils._instance = BaseClusterUtils._subclasses.get(ResourceManager.LSF)()
+                BaseClusterUtils._instance = BaseClusterUtils._subclasses.get(
+                    ResourceManager.LSF
+                )()
         return BaseClusterUtils._instance
 
-    
     def kill_job(self, job_id):
         raise NotImplementedError()
 
@@ -67,7 +70,7 @@ class BaseClusterUtils(object, metaclass=ABCMeta):
 
     def kill_all_running_job_steps():
         raise NotImplementedError()
-    
+
     def run_job(
         self,
         cmd,
@@ -100,7 +103,7 @@ class BaseClusterUtils(object, metaclass=ABCMeta):
         job_name=None,
         wall_time: str = None,  # format: HH:MM
         stdout=None,
-        stderr=None,        
+        stderr=None,
         node_count=None,
         process_count=None,
         processes_per_node=None,
@@ -144,7 +147,7 @@ class BaseClusterUtils(object, metaclass=ABCMeta):
     ) -> Union[psij.Job, subprocess.Popen]:
         job = BaseClusterUtils._build_job(
             cmd=cmd,
-            proj_id=proj_id,            
+            proj_id=proj_id,
             queue_name=queue_name,
             job_name=job_name,
             wall_time=wall_time,
@@ -187,7 +190,7 @@ class BaseClusterUtils(object, metaclass=ABCMeta):
     @staticmethod
     def _build_job(
         cmd,
-        proj_id=None,        
+        proj_id=None,
         queue_name=None,
         job_name=None,
         wall_time: str = None,  # format: HH:MM
@@ -200,24 +203,23 @@ class BaseClusterUtils(object, metaclass=ABCMeta):
         cpu_cores_per_process=None,
         gpu_cores_per_process=None,
     ) -> psij.Job:
-        
         # shell_script_file = os.path.join(str(uuid4())+".sh")
         # print(f"Written the following command into the file {shell_script_file}\n{cmd}")
         # with open(shell_script_file, "w+") as f:
         #     f.write(cmd)
 
         cmd_split = cmd.split()
-        
+
         job = psij.Job()
         spec = psij.JobSpec()
         spec.executable = cmd_split[0]
         spec.arguments = cmd_split[1:]
         print(spec.executable, spec.arguments)
-        # cmds = cmd.split()        
+        # cmds = cmd.split()
         # spec.executable = " ".join(cmds)
         # print(spec.executable)
-        #spec.arguments = cmds[1:]
-        
+        # spec.arguments = cmds[1:]
+
         spec.name = job_name
         spec.attributes.project_name = proj_id
         spec.attributes.queue_name = queue_name
@@ -261,7 +263,7 @@ class BaseClusterUtils(object, metaclass=ABCMeta):
         varying_param_key,
         wf_result,
         with_flowcept,
-        flowcept_settings
+        flowcept_settings,
     ):
         out_job = {
             "my_job_id": my_job_id,

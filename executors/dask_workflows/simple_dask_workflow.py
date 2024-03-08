@@ -12,12 +12,10 @@ def dummy_func2(y, workflow_id=None):
 
 
 def calculate_batch_and_epochs(z, w, workflow_id=None):
-    result = {
-        "batch_size": int(z + w + 16),
-        "epochs": max(int(z/w)+1, 2)
-    }
+    result = {"batch_size": int(z + w + 16), "epochs": max(int(z / w) + 1, 2)}
     # Silly thing just to check GPU info
-    import torch     
+    import torch
+
     if torch.cuda.is_available():
         gpus = {}
         for i in range(torch.cuda.device_count()):
@@ -34,20 +32,22 @@ def init_dask(rep_dir, scheduler_file, with_flowcept=False):
     consumer = None
     if with_flowcept:
         from flowcept import FlowceptDaskWorkerAdapter
+
         client.register_worker_plugin(FlowceptDaskWorkerAdapter())
         sleep(2)
-    
+
         # from flowcept import FlowceptConsumerAPI
         # consumer = FlowceptConsumerAPI()
         # consumer.start()
-        
+
     return client, consumer
-    
-    
+
+
 def dask_workflow(client, rep_dir):
     import json
     import numpy as np
     from uuid import uuid4
+
     i1 = np.random.random()
     wf_id = f"wf_{uuid4()}"
     print(f"Workflow_Id={wf_id}")
@@ -56,27 +56,32 @@ def dask_workflow(client, rep_dir):
     o3 = client.submit(calculate_batch_and_epochs, o1, o2, workflow_id=wf_id)
     print(f"Task3_id={o3.key}")
     print(f"Result={o3.result()}")
-    with open(os.path.join(rep_dir,"workflow_result.json"), "w") as outfile:
-        json.dump({"workflow_id": wf_id, "task_id": o3.key, "result": o3.result()}, outfile)
-    
-    
+    with open(os.path.join(rep_dir, "workflow_result.json"), "w") as outfile:
+        json.dump(
+            {"workflow_id": wf_id, "task_id": o3.key, "result": o3.result()}, outfile
+        )
+
+
 def parse_args():
-    parser = argparse.ArgumentParser(description='Submit Dask workflow.')
+    parser = argparse.ArgumentParser(description="Submit Dask workflow.")
     optional = parser._action_groups.pop()
 
-    required = parser.add_argument_group('required arguments')
-    required.add_argument('--scheduler-file', metavar='S', required=True,
-                        help="Dask's scheduler file")
-    required.add_argument('--rep-dir', metavar='D', required=True,
-                          help="Job's repetition directory")
-    optional.add_argument('--with-flowcept', action='store_true',
-                    help="Enable Flowcept interceptions")
+    required = parser.add_argument_group("required arguments")
+    required.add_argument(
+        "--scheduler-file", metavar="S", required=True, help="Dask's scheduler file"
+    )
+    required.add_argument(
+        "--rep-dir", metavar="D", required=True, help="Job's repetition directory"
+    )
+    optional.add_argument(
+        "--with-flowcept", action="store_true", help="Enable Flowcept interceptions"
+    )
 
     parser._action_groups.append(optional)
-        
+
     if len(sys.argv) == 1:
         parser.print_help()
-        
+
     args = parser.parse_args()
     return args
 
