@@ -3,12 +3,6 @@ from time import sleep
 import itertools
 import shutil
 
-from cluster_experiment_utils.cluster_utils.base_cluster_utils import (
-    ResourceManager,
-    Runner,
-)
-from cluster_experiment_utils.conf import RESOURCE_MANAGER
-
 
 def printed_sleep(secs):
     print(f"Going to wait for {secs} secs...")
@@ -33,7 +27,7 @@ def _interpolate_values(start, end, step):
 
 def replace_var_mapping_in_str(_str, variable_mapping):
     for var_name in variable_mapping:
-        _str = _str.replace("${" + var_name + "}", str(variable_mapping[var_name]))
+        _str = _str.replace("$[" + var_name + "]", str(variable_mapping[var_name]))
     return _str
 
 
@@ -88,19 +82,19 @@ def generate_configs(params):
 
 def get_resource_manager_type():
     if shutil.which("sbatch") is not None:
-        return ResourceManager.SLURM
+        return "slurm"
     elif shutil.which("bsub") is not None:
-        return ResourceManager.LSF
+        return "lsf"
     elif shutil.which("qsub") is not None:
-        return ResourceManager.PBS
+        return "pbs"
     else:
         return "unknown"
 
 
-def get_runner_type():
-    if RESOURCE_MANAGER == ResourceManager.SLURM:
-        return Runner.SRUN
-    elif RESOURCE_MANAGER == ResourceManager.LSF:
-        return Runner.JSRUN
+def get_runner_type(resource_manager_str: str):
+    if resource_manager_str == "slurm":
+        return "srun"
+    elif resource_manager_str == "lsf":
+        return "jsrun"
     else:
         return "unknown"

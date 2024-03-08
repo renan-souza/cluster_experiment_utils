@@ -1,19 +1,19 @@
 import json
+import os
 import subprocess
 from abc import ABCMeta
 from datetime import datetime, timedelta
+from uuid import uuid4
 from typing import Dict, Union
 
 import psij
 
-from cluster_experiment_utils.cluster_utils.lsf_utils import LsfUtils
-from cluster_experiment_utils.cluster_utils.slurm_utils import SlurmUtils
-from cluster_experiment_utils.conf import RESOURCE_MANAGER
+from cluster_experiment_utils.utils import get_resource_manager_type, get_runner_type
 
 
 class ResourceManager:
-    LSF = "LSF"
-    SLURM = "SLURM"
+    LSF = "lsf"
+    SLURM = "slurm"
     PBS = "pbs"
 
 
@@ -23,19 +23,27 @@ class Runner:
 
 
 class BaseClusterUtils(object, metaclass=ABCMeta):
-    _instance = None
 
+    _subclasses = {}
+    @classmethod
+    def register_subclass(cls, subclass_name, subclass):
+        cls._subclasses[subclass_name] = subclass
+
+    _instance = None
+    RESOURCE_MANAGER = get_resource_manager_type()
+    
     @staticmethod
     def get_instance():
         if BaseClusterUtils._instance is not None:
             return BaseClusterUtils._instance
         else:
-            if RESOURCE_MANAGER == ResourceManager.SLURM:
-                BaseClusterUtils._instance = SlurmUtils()
-            elif RESOURCE_MANAGER == ResourceManager.LSF:
-                BaseClusterUtils._instance = LsfUtils()
+            if BaseClusterUtils.RESOURCE_MANAGER == ResourceManager.SLURM:
+                BaseClusterUtils._instance = BaseClusterUtils._subclasses.get(ResourceManager.SLURM)()
+            elif BaseClusterUtils.RESOURCE_MANAGER == ResourceManager.LSF:
+                BaseClusterUtils._instance = BaseClusterUtils._subclasses.get(ResourceManager.LSF)()
         return BaseClusterUtils._instance
 
+    
     def kill_job(self, job_id):
         raise NotImplementedError()
 
@@ -56,6 +64,9 @@ class BaseClusterUtils(object, metaclass=ABCMeta):
     def get_resource_usage_info(self, job_dir) -> Dict:
         raise NotImplementedError()
 
+    def kill_all_running_job_steps():
+        raise NotImplementedError()
+    
     def run_job(
         self,
         cmd,
@@ -65,30 +76,34 @@ class BaseClusterUtils(object, metaclass=ABCMeta):
         process_count=None,
         processes_per_node=None,
         cpu_cores_per_process=None,
-        gpu_cores_per_process=None,
+        gpus_per_job=None,
     ):
-        return self._generic_job_submission(
-            cmd=cmd,
-            stdout=stdout,
-            stderr=stderr,
-            node_count=node_count,
-            process_count=process_count,
-            processes_per_node=processes_per_node,
-            cpu_cores_per_process=cpu_cores_per_process,
-            gpu_cores_per_process=gpu_cores_per_process,
-            job_type="runner",
-        )
+        raise NotImplementedError()
+        # return self._generic_job_submission(
+        #     cmd=cmd,
+        #     stdout=stdout,
+        #     stderr=stderr,
+        #     node_count=node_count,
+        #     process_count=process_count,
+        #     processes_per_node=processes_per_node,
+        #     cpu_cores_per_process=cpu_cores_per_process,
+        #     gpu_cores_per_process=gpu_cores_per_process,
+        #     job_type="runner",
+        # )
 
     def submit_batch_job(
         self,
         cmd,
         proj_id,
         queue_name=None,
+        job_name=None,
+        wall_time: str = None,  # format: HH:MM
         stdout=None,
-        stderr=None,
+        stderr=None,        
         node_count=None,
         process_count=None,
         processes_per_node=None,
+        custom_attributes=None,
         cpu_cores_per_process=None,
         gpu_cores_per_process=None,
     ):
@@ -96,10 +111,13 @@ class BaseClusterUtils(object, metaclass=ABCMeta):
             cmd=cmd,
             proj_id=proj_id,
             queue_name=queue_name,
+            job_name=job_name,
+            wall_time=wall_time,
             stdout=stdout,
             stderr=stderr,
             node_count=node_count,
             process_count=process_count,
+            custom_attributes=custom_attributes,
             processes_per_node=processes_per_node,
             cpu_cores_per_process=cpu_cores_per_process,
             gpu_cores_per_process=gpu_cores_per_process,
@@ -111,38 +129,51 @@ class BaseClusterUtils(object, metaclass=ABCMeta):
         cmd,
         proj_id=None,
         queue_name=None,
+        job_name=None,
+        wall_time: str = None,  # format: HH:MM
         stdout=None,
         stderr=None,
         node_count=None,
         process_count=None,
         processes_per_node=None,
+        custom_attributes=None,
         cpu_cores_per_process=None,
         gpu_cores_per_process=None,
         job_type="batch",  # or "runner"
     ) -> Union[psij.Job, subprocess.Popen]:
         job = BaseClusterUtils._build_job(
             cmd=cmd,
-            proj_id=proj_id,
+            proj_id=proj_id,            
             queue_name=queue_name,
+            job_name=job_name,
+            wall_time=wall_time,
             stdout=stdout,
             stderr=stderr,
             node_count=node_count,
             process_count=process_count,
             processes_per_node=processes_per_node,
+            custom_attributes=custom_attributes,
             cpu_cores_per_process=cpu_cores_per_process,
             gpu_cores_per_process=gpu_cores_per_process,
         )
         if job_type == "batch":
-            jex = psij.JobExecutor.get_instance(RESOURCE_MANAGER)
+            jex = psij.JobExecutor.get_instance(BaseClusterUtils.RESOURCE_MANAGER)
+            print("Going to submit job")
             jex.submit(job)
+            print("Submitted!")
             return job
-        elif job_type == "runner":
-            return BaseClusterUtils._launch_job(job)
+        else:
+            raise Exception("Unexpected")
+        # Unfortunately I couldn't make psij work for job steps.
+        # elif job_type == "runner":
+        #     return BaseClusterUtils._launch_job(job)
 
     @staticmethod
     def _launch_job(job: psij.Job) -> subprocess.Popen:
-        launcher = psij.Launcher.get_instance("srun")
+        runner = get_runner_type(BaseClusterUtils.RESOURCE_MANAGER)
+        launcher = psij.Launcher.get_instance(runner)
         command = launcher.get_launch_command(job)
+        print(f"Going to run the command: {command}")
         process = subprocess.Popen(
             command,
             shell=True,
@@ -155,28 +186,43 @@ class BaseClusterUtils(object, metaclass=ABCMeta):
     @staticmethod
     def _build_job(
         cmd,
-        proj_id=None,
-        wall_time: str = None,  # format: HH:MM
+        proj_id=None,        
         queue_name=None,
         job_name=None,
+        wall_time: str = None,  # format: HH:MM
         stdout=None,
         stderr=None,
         node_count=None,
         process_count=None,
         processes_per_node=None,
+        custom_attributes=None,
         cpu_cores_per_process=None,
         gpu_cores_per_process=None,
     ) -> psij.Job:
+        
+        # shell_script_file = os.path.join(str(uuid4())+".sh")
+        # print(f"Written the following command into the file {shell_script_file}\n{cmd}")
+        # with open(shell_script_file, "w+") as f:
+        #     f.write(cmd)
+
+        cmd_split = cmd.split()
+        
         job = psij.Job()
         spec = psij.JobSpec()
-        cmds = cmd.split()
-        print(cmds)
-        spec.executable = cmds[0]
-        spec.arguments = cmds[1:]
-
+        spec.executable = cmd_split[0]
+        spec.arguments = cmd_split[1:]
+        print(spec.executable, spec.arguments)
+        # cmds = cmd.split()        
+        # spec.executable = " ".join(cmds)
+        # print(spec.executable)
+        #spec.arguments = cmds[1:]
+        
         spec.name = job_name
         spec.attributes.project_name = proj_id
         spec.attributes.queue_name = queue_name
+        spec.attributes.custom_attributes = custom_attributes
+        if custom_attributes:
+            print(custom_attributes)
         if wall_time:
             spec.attributes.duration = BaseClusterUtils._parse_walltime_string(
                 wall_time
@@ -235,11 +281,12 @@ class BaseClusterUtils(object, metaclass=ABCMeta):
         }
 
         resource_usage = None
-        try:
-            resource_usage = cluster_utils.get_resource_usage_info(rep_dir)
-        except Exception as e:
-            print("Could not retrieve resource usage")
-            print(e)
+        # TODO
+        # try:
+        #     resource_usage = cluster_utils.get_resource_usage_info(rep_dir)
+        # except Exception as e:
+        #     print("Could not retrieve resource usage")
+        #     print(e)
 
         if wf_result is not None:
             out_job["wf_result"] = wf_result

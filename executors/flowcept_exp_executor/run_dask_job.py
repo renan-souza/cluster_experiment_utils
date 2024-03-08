@@ -10,14 +10,6 @@ from datetime import datetime
 from omegaconf import OmegaConf, DictConfig
 
 from cluster_experiment_utils.cluster_utils.base_cluster_utils import BaseClusterUtils
-from cluster_experiment_utils.flowcept_utils import (
-    update_flowcept_settings,
-    kill_dbs,
-    start_redis,
-    start_mongo,
-    test_data_and_persist,
-)
-
 from cluster_experiment_utils.utils import run_cmd_check_output, printed_sleep, run_cmd
 
 
@@ -49,7 +41,9 @@ def parse_args():
 
 
 def start_scheduler(preload_scheduler_cmd, rep_dir, scheduler_file):
-    scheduler_cmd = f"dask scheduler {preload_scheduler_cmd} --interface='ib0' --no-dashboard --no-show --scheduler-file {scheduler_file}"  # TODO: check about this interface=íb0, not sure if we have this on Frontier.
+    
+    scheduler_cmd = f"dask scheduler {preload_scheduler_cmd}  --no-dashboard --no-show --scheduler-file {scheduler_file}"  
+    # TODO: check about this # --interface='ib0', not sure if we have this on Frontier.
 
     print("Starting Scheduler")
     cluster_utils = BaseClusterUtils.get_instance()
@@ -58,9 +52,9 @@ def start_scheduler(preload_scheduler_cmd, rep_dir, scheduler_file):
         node_count=1,
         process_count=1,
         processes_per_node=1,
-        gpu_cores_per_process=0,
-        stderr=f"{rep_dir}/scheduler_err.%h.%j.%t.%p",
-        stdout=f"{rep_dir}/scheduler_out.%h.%j.%t.%p",
+        gpus_per_job=0,
+        stderr=f"{rep_dir}/scheduler.err",
+        stdout=f"{rep_dir}/scheduler.out",
     )
     total_wait_time = 160  # in seconds
     print(
@@ -101,14 +95,15 @@ def start_workers_with_gpu(nnodes, n_gpus_per_node, gpu_type, rep_dir, scheduler
     cluster_utils = BaseClusterUtils.get_instance()
 
     for i in range(nnodes):
+        worker_cmds = []
         for j in range(n_gpus_per_node):
             stdout = os.path.join(worker_logs, f"worker_{i}_{j}.out")
             stderr = os.path.join(worker_logs, f"worker_{i}_{j}.err")
-            worker_cmd = f"""
-            export {visible_device}='{j}' &&
-            dask worker --nthreads 1 --nworkers 1 --interface ib0 --no-dashboard  --scheduler-file {scheduler_file} > {stdout} 2> {stderr} &
-            """
-            cluster_utils.run_job(worker_cmd, node_count=1, processes_per_node=1)
+            #  --interface ib0
+            worker_cmd = f"export {visible_device}={j} && dask worker --nthreads 1 --nworkers 1 --no-dashboard  --scheduler-file {scheduler_file} > {stdout} 2> {stderr} "
+            worker_cmds.append(worker_cmd)
+        worker_cmds_str = " && ".join(worker_cmd)
+        cluster_utils.run_job(worker_cmd, node_count=1, processes_per_node=n_gpus_per_node, gpus_per_job=n_gpus_per_node)
 
     print(
         f"\n\nDone starting {nnodes*n_gpus_per_node} workers. Let's just wait some time...\n\n"
@@ -116,16 +111,25 @@ def start_workers_with_gpu(nnodes, n_gpus_per_node, gpu_type, rep_dir, scheduler
     printed_sleep(30)
 
 
-def start_client(conf_data, varying_param_key, with_flowcept_arg):
+def start_client(conf_data, varying_param_key, rep_dir, scheduler_file, with_flowcept_arg):
     print("Starting the Client")
-    python_client_command = conf_data.static_params.dask_user_workflow
-    # TODO: what to change below?
-    wf_params = conf_data["varying_params"][varying_param_key]["workflow_params"]
-    # TODO: save them?
+    python_client_command = "python " + conf_data.static_params.dask_user_workflow
 
+    wf_params = conf_data["varying_params"][varying_param_key].get("workflow_params", {})
+    wf_params.update({
+        "rep-dir": rep_dir,
+        "scheduler-file": scheduler_file,        
+    })
+    
     for k, v in wf_params.items():
-        python_client_command = python_client_command.replace("${" + k + "_val}", v)
-    python_client_command += with_flowcept_arg
+        python_client_command = python_client_command.replace("$[" + k + "_val]", v)
+
+    
+    python_client_command += " " + with_flowcept_arg
+
+    print("Command after replacements")
+    print(python_client_command)
+    
     t_c_i = time()
     run_cmd_check_output(python_client_command)
 
@@ -135,6 +139,15 @@ def start_client(conf_data, varying_param_key, with_flowcept_arg):
 
 
 def start_flowcept(exp_conf, job_hosts, rep_dir, varying_param_key):
+    print("Importing flowcept_utils")
+    from cluster_experiment_utils.flowcept_utils import (
+        update_flowcept_settings,
+        kill_dbs,
+        start_redis,
+        start_mongo
+    )
+    print("Done importing.")
+
     cluster_utils = BaseClusterUtils.get_instance()
     should_start_mongo = exp_conf.static_params.start_mongo
     flowcept_base_settings_path = exp_conf["static_params"][
@@ -144,10 +157,7 @@ def start_flowcept(exp_conf, job_hosts, rep_dir, varying_param_key):
     preload_scheduler_cmd = f"--preload {dask_scheduler_setup_path}"
     flowcept_settings = OmegaConf.load(Path(flowcept_base_settings_path))
 
-    # Sometimes, like on Summit, the 0th node is not a compute node.
-    # Here we are setting the 1st node to be the DB host for Redis and Mongo
-    # (if we want to start mongo in this script)
-    db_host = list(job_hosts.keys())[1]
+    db_host = list(job_hosts.keys())[0]
     print(f"DB Host: {db_host}")
     job_id = cluster_utils.get_this_job_id()
     update_flowcept_settings(
@@ -159,6 +169,8 @@ def start_flowcept(exp_conf, job_hosts, rep_dir, varying_param_key):
         varying_param_key,
         job_id,
     )
+    flowcept_settings_path = os.path.join(rep_dir, "flowcept_settings.yaml")
+    os.environ["FLOWCEPT_SETTINGS_PATH"] = flowcept_settings_path
     kill_dbs(db_host, should_start_mongo)
     redis_start_command = exp_conf.static_params.redis_start_command
     start_redis(db_host, redis_start_command)
@@ -180,6 +192,9 @@ def main(
     rep_no: int,
 ):
     cluster_utils = BaseClusterUtils.get_instance()
+    print("Killing old job steps")
+    cluster_utils.kill_all_running_job_steps()
+    
     proj_dir = exp_conf.static_params.proj_dir
     job_dir = os.path.join(proj_dir, "exps", my_job_id)
     rep_dir = os.path.join(job_dir, str(rep_no))
@@ -204,8 +219,7 @@ def main(
     host_allocs = {}  # TODO: not sure if we are going to need this
     preload_scheduler_cmd = ""
 
-    t0 = time()
-    # run_cmd(f"jskill all ") TODO?
+    t0 = time()    
     printed_sleep(2)
 
     consumer = None
@@ -221,42 +235,44 @@ def main(
     printed_sleep(3)
     start_workers_with_gpu(nnodes, n_gpus_per_node, gpu_type, rep_dir, scheduler_file)
 
-    t_c_f, t_c_i = start_client(exp_conf, varying_param_key, with_flowcept_arg)
+    t_c_f, t_c_i = start_client(exp_conf, varying_param_key, rep_dir, scheduler_file, with_flowcept_arg)
     print("Workflow done!")
     if consumer is not None:
         print("Now going to gracefully stop everything")
         consumer.stop()
 
-    with open(f"{rep_dir}/workflow_result.json", "r") as infile:
-        wf_result = json.load(infile)
+    # with open(f"{rep_dir}/workflow_result.json", "r") as infile:
+    #     wf_result = json.load(infile)
 
-    t1 = time()
-    job_output = cluster_utils.generate_job_output(
-        cluster_utils,
-        exp_conf,
-        host_allocs,
-        job_hosts,
-        job_dir,
-        my_job_id,
-        proj_dir,
-        python_env,
-        rep_dir,
-        rep_no,
-        t0,
-        t1,
-        t_c_f,
-        t_c_i,
-        varying_param_key,
-        wf_result,
-        with_flowcept,
-        flowcept_settings,
-    )
+    # t1 = time()
+    # job_output = cluster_utils.generate_job_output(
+    #     cluster_utils,
+    #     exp_conf,
+    #     host_allocs,
+    #     job_hosts,
+    #     job_dir,
+    #     my_job_id,
+    #     proj_dir,
+    #     python_env,
+    #     rep_dir,
+    #     rep_no,
+    #     t0,
+    #     t1,
+    #     t_c_f,
+    #     t_c_i,
+    #     varying_param_key,
+    #     wf_result,
+    #     with_flowcept,
+    #     flowcept_settings,
+    # )
 
-    if with_flowcept:
-        test_data_and_persist(rep_dir, wf_result, job_output)
+    # if with_flowcept:
+        #from cluster_experiment_utils.flowcept_utils import test_data_and_persist
+        #test_data_and_persist(rep_dir, wf_result, job_output)
 
-    print("All done. Going to kill other processes")
-    # run_cmd("jskill all") # TODO?
+    print("All done. Going to kill all runnnig job steps.")
+    cluster_utils.kill_all_running_job_steps()
+    
 
 
 if __name__ == "__main__":
@@ -279,5 +295,6 @@ if __name__ == "__main__":
     with open(os.path.join(job_dir, "SUCCESS"), "w") as f:
         f.write(datetime.utcnow().strftime("%Y-%m-%d %H-%M-%S.%f")[:-3])
 
-    BaseClusterUtils.get_instance().kill_this_job()
+    # TODO: uncomment
+    #BaseClusterUtils.get_instance().kill_this_job()
     sys.exit(0)

@@ -1,0 +1,43 @@
+static_params:
+  project_id: STF219
+  gpu_type: amd
+  n_gpus_per_node: 2
+  dask_user_workflow: /lustre/orion/stf219/scratch/souzar/cluster_experiment_utils/executors/dask_workflows/simple_dask_workflow.py --scheduler-file=$[scheduler-file_val] --rep-dir=$[rep-dir_val]  
+  job_execution_script: /lustre/orion/stf219/scratch/souzar/cluster_experiment_utils/executors/flowcept_exp_executor/run_dask_job.py
+  mongo_start_command: /lustre/orion/stf219/scratch/souzar/dependency_software/mongodb-linux-x86_64-suse15-7.0.6/bin/mongod --bind_ip_all --dbpath $[MONGO_DATA] --logpath $[MONGO_LOG]
+  redis_start_command: /lustre/orion/stf219/scratch/souzar/dependency_software/redis-stack-server-7.2.0-v8/bin/redis-server /lustre/orion/stf219/scratch/souzar/cluster_experiment_utils/exp_dir/conf/redis.conf
+  queue: batch
+  job_name: flowcept_llm
+  proj_dir: /lustre/orion/stf219/scratch/souzar/cluster_experiment_utils/exp_dir/exps_llm  
+  #container_images_dir: /gpfs/alpine/stf219/scratch/souzar/container_images
+  conda_env: /lustre/orion/stf219/scratch/souzar/miniconda/envs/flowcept_llm_tests
+  flowcept_base_settings_path: /lustre/orion/stf219/scratch/souzar/cluster_experiment_utils/exp_dir/conf/sample_flowcept_settings.yaml
+  dask_scheduler_setup_path: /lustre/orion/stf219/scratch/souzar/flowcept/resources/dask_scheduler_setup.py
+  flowcept_log_level: debug
+  user: souzar
+  experiment_id: flowcept_llm
+  start_mongo: false
+  custom_batch_job_attributes:
+    slurm.qos: debug
+
+varying_params:
+  small_test:
+    skip: false
+    wall_time: "0:10"
+    nnodes: 1
+    nreps: 1
+    with_flowcept: true
+    notes: test
+    # workflow_params:
+    #    no_wfs: 10
+    #    no_maps: 3
+    #    no_attrs: 1
+    #    sleep_time: 1
+    adapters:
+      dask:
+        worker_should_get_input: false
+        scheduler_should_get_input: true
+        worker_should_get_output: true
+        scheduler_create_timestamps: false
+        worker_create_timestamps: false
+

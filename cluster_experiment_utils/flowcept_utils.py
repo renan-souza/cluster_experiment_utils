@@ -2,10 +2,10 @@ import json
 import os
 from pathlib import Path
 from typing import Any, Dict
+import getpass
+
 
 from omegaconf import OmegaConf, DictConfig
-
-from flowcept import TaskQueryAPI, DBAPI, WorkflowObject
 
 from cluster_experiment_utils.utils import (
     printed_sleep,
@@ -46,7 +46,7 @@ def update_flowcept_settings(
             "job_id": job_id,
             "log_path": log_path,
             "log_level": exp_conf.static_params.flowcept_log_level,
-            "user": exp_conf.static_params.user,
+            "user": getpass.getuser(),
             "experiment_id": exp_conf.static_params.experiment_id,
         },
     )
@@ -62,15 +62,17 @@ def update_flowcept_settings(
 
     flowcept_settings_path = os.path.join(repetition_dir, "flowcept_settings.yaml")
     OmegaConf.save(new_settings, Path(flowcept_settings_path))
+    print(f"Saved new {flowcept_settings_path}")
     print(repr(new_settings))
     os.environ["FLOWCEPT_SETTINGS_PATH"] = flowcept_settings_path
     return new_settings
 
 
 def kill_dbs(db_host, should_start_mongo):
-    print("Killing mongo & redis...")
+    print("Killing redis...")
     if should_start_mongo:
-        run_cmd(f"ssh {db_host} pkill -9 -f mongod &")
+        print("Killing mongo...")
+        run_cmd(f"ssh {db_host} pkill -f mongod &")
     run_cmd(f"ssh {db_host} pkill -9 -f redis-server &")
     printed_sleep(5)
 
@@ -85,9 +87,14 @@ def start_mongo(db_host, mongo_start_cmd, rep_dir):
 
     variable_mapping = {"MONGO_DATA": mongo_data_dir_db, "MONGO_LOG": mongo_log}
     mongo_start_cmd = replace_var_mapping_in_str(mongo_start_cmd, variable_mapping)
-    run_cmd(f"ssh {db_host} {mongo_start_cmd} & ")
+
+    if "local" in db_host:
+        run_cmd(f"{mongo_start_cmd} &")
+    else:
+        run_cmd(f"ssh {db_host} {mongo_start_cmd} & ")
     printed_sleep(5)
     print("Mongo UP!")
+
 
 
 def start_redis(db_host, redis_start_cmd):
@@ -98,6 +105,15 @@ def start_redis(db_host, redis_start_cmd):
 
 
 def test_data_and_persist(rep_dir, wf_result, job_output):
+    print("Going to import DBAPI")
+    from flowcept import DBAPI
+    print("Done.")
+    print("Going to import WorkflowObject")
+    from flowcept import WorkflowObject
+    print("Done.")
+    print("Going to import TaskQueryAPI")
+    from flowcept import TaskQueryAPI
+    print("Done.")
     api = TaskQueryAPI()
 
     wf_id = wf_result.get("workflow_id")
