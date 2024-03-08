@@ -102,7 +102,7 @@ def start_workers_with_gpu(nnodes, n_gpus_per_node, gpu_type, rep_dir, scheduler
             #  --interface ib0
             worker_cmd = f"export {visible_device}={j} && dask worker --nthreads 1 --nworkers 1 --no-dashboard  --scheduler-file {scheduler_file} > {stdout} 2> {stderr} "
             worker_cmds.append(worker_cmd)
-        worker_cmds_str = " && ".join(worker_cmd)
+        worker_cmds_str = " && ".join(worker_cmds)
         cluster_utils.run_job(worker_cmd, node_count=1, processes_per_node=n_gpus_per_node, gpus_per_job=n_gpus_per_node)
 
     print(

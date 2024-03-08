@@ -1,10 +1,9 @@
 import os
 import subprocess
-
 from cluster_experiment_utils.cluster_utils.base_cluster_utils import (
     BaseClusterUtils,
 )
-from cluster_experiment_utils.utils import run_cmd_check_output
+from cluster_experiment_utils.utils import run_cmd_check_output, printed_sleep
 
 
 class SlurmUtils(BaseClusterUtils):
@@ -17,6 +16,8 @@ class SlurmUtils(BaseClusterUtils):
         print(f"Killing job {job_id}")
         run_cmd_check_output(f"scancel {job_id}")
         print("Kill command submitted!")
+        printed_sleep(2)
+        
 
 
     def kill_all_running_job_steps(self):
@@ -28,15 +29,15 @@ class SlurmUtils(BaseClusterUtils):
             for line in result.stdout.strip().split('\n'):
                 # Split each line into columns
                 columns = line.split()
-    
                 # Check if the line corresponds to a RUNNING job
-                if len(columns) > 5 and columns[5] == 'RUNNING':
+                if len(columns):
                     step_job_id = columns[0]
-                    print(step_job_id)
-                    if "." in step_job_id:
+                    status = columns[4]
+                    if "." in step_job_id and status == 'RUNNING':                                  
                         split_val = step_job_id.split(".")
                         if split_val[1].isdigit():
                             self.kill_job(step_job_id)
+                            
     
         except subprocess.CalledProcessError as e:
             print(f"Error running sacct: {e}")
