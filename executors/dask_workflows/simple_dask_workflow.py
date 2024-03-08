@@ -60,6 +60,8 @@ def dask_workflow(client, rep_dir):
         json.dump(
             {"workflow_id": wf_id, "task_id": o3.key, "result": o3.result()}, outfile
         )
+    print("I'm Dask client. I'm going to close Dask gracefully!")
+    client.close()
 
 
 def parse_args():

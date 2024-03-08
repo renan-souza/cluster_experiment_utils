@@ -236,7 +236,6 @@ def main(
         "with_flowcept", False
     )
     with_flowcept_arg = "--with-flowcept" if with_flowcept else ""
-    # db_host = None
 
     os.environ["LC_ALL"] = "C"
     os.environ["LANG"] = "C"
