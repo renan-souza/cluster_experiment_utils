@@ -283,7 +283,7 @@ class BaseClusterUtils(object, metaclass=ABCMeta):
             out_job["wf_result"] = wf_result
         out_job["exp_settings"] = OmegaConf.to_container(conf_data)
         if flowcept_settings is not None:
-            out_job["flowcept_settings"] = OmegaConf.to_container(flowcept_settings)        
+            out_job["flowcept_settings"] = OmegaConf.to_container(flowcept_settings)
         print(json.dumps(out_job, indent=2))
         with open(f"{rep_dir}/out_job.json", "w") as f:
             f.write(json.dumps(out_job, indent=2) + "\n")

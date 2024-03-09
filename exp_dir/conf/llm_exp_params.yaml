@@ -16,7 +16,7 @@ static_params:
   conda_env: /lustre/orion/stf219/scratch/souzar/miniconda/envs/llmtest2
   flowcept_base_settings_path: /lustre/orion/stf219/scratch/souzar/cluster_experiment_utils/exp_dir/conf/flowcept_base_settings.yaml
   dask_scheduler_setup_path: /lustre/orion/stf219/scratch/souzar/flowcept/resources/dask_scheduler_setup.py
-  flowcept_log_level: debug
+  flowcept_log_level: error
   user: souzar
   campaign_id: flowcept_llm
   environment_id: frontier
@@ -33,7 +33,7 @@ varying_params:
     with_flowcept: true
     notes: test
     workflow_params: {
-      "input_data_dir": "/lustre/orion/stf219/scratch/souzar/cluster_experiment_utils/exp_dir/exps_llm/wikitext-2-v1.data",
+      "input_data_dir": "/lustre/orion/stf219/scratch/souzar/cluster_experiment_utils/exp_dir/exps_llm/wiki_data",
       "batch_size": [20],
       "eval_batch_size": [10],
       "emsize": [200],

@@ -1,12 +1,15 @@
 # The code in this file is based on:
 # https://blog.paperspace.com/build-a-language-model-using-pytorch/
 import math
+import os
+import sys
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torchtext.data.utils import get_tokenizer
-from torchtext.vocab import build_vocab_from_iterator
-from datasets import load_from_disk
+
+# from torchtext.data.utils import get_tokenizer
+# from torchtext.vocab import build_vocab_from_iterator
+# from datasets import load_from_disk
 
 import flowcept
 from flowcept import FlowceptConsumerAPI
@@ -18,8 +21,6 @@ from flowcept.instrumentation.decorators.flowcept_torch import (
 )
 from flowcept.instrumentation.decorators.responsible_ai import model_profiler
 
-tokenizer = get_tokenizer("basic_english")
-
 
 # Define a function to batchify the data
 def batchify(data, bsz):
@@ -29,25 +30,6 @@ def batchify(data, bsz):
     return data
 
 
-# Define a function to yield tokens from the dataset
-def yield_tokens(data_iter):
-    for item in data_iter:
-        if len(item["text"]):
-            yield tokenizer(item["text"])
-
-
-# Define a function to process the raw text and convert it to tensors
-def data_process(vocab, raw_text_iter):
-    data = [
-        torch.tensor(
-            [vocab[token] for token in tokenizer(item["text"])],
-            dtype=torch.long,
-        )
-        for item in raw_text_iter
-    ]
-    return torch.cat(tuple(filter(lambda t: t.numel() > 0, data)))
-
-
 def get_batch(source, i, bptt=35):
     seq_len = min(bptt, len(source) - 1 - i)
     data = source[i : i + seq_len]
@@ -55,34 +37,39 @@ def get_batch(source, i, bptt=35):
     return data, target
 
 
-def get_wiki_text(input_data_dir):
+def get_wiki_text(data_dir):
     # Load the WikiText2 dataset
-    dataset = load_from_disk(input_data_dir)    
-    test_dataset = dataset["test"]
-    train_dataset = dataset["train"]
-    validation_dataset = dataset["validation"]
-
-    # Build the vocabulary from the training dataset
-    vocab = build_vocab_from_iterator(yield_tokens(train_dataset))
-    vocab.set_default_index(vocab["<unk>"])
-    ntokens = len(vocab)
-
-    # Process the train, validation, and test datasets
-    train_data = data_process(vocab, train_dataset)
-    val_data = data_process(vocab, validation_dataset)
-    test_data = data_process(vocab, test_dataset)
+    train_data = torch.load(os.path.join(data_dir, "train_data.tensor"))
+    val_data = torch.load(os.path.join(data_dir, "val_data.tensor"))
+    test_data = torch.load(os.path.join(data_dir, "test_data.tensor"))
+    with open(os.path.join(data_dir, "ntokens.txt")) as f:
+        ntokens = int(f.read())
 
     try:
-        if torch.backends.mps.is_available():
-            train_data = train_data.to(torch.device("mps"))
-            val_data = val_data.to(torch.device("mps"))
-            test_data = test_data.to(torch.device("mps"))
+        device_type = "cpu"
+        try:
+            if torch.cuda.is_available():
+                device_type = "cuda"
+            elif torch.backends.mps.is_available():
+                device_type = "mps"
+        except:
+            pass
+        device = torch.device(device_type)
+        train_data = train_data.to(device)
+        val_data = val_data.to(device)
+        test_data = test_data.to(device)
     except:
-        pass
+        raise Exception("Couldn't send data to device")
+
+    if device_type == "cpu":
+        raise Exception(
+            "It is going to take forever because we coudln't send the data to a faster device"
+        )
 
     print("Train data", train_data.shape)
     print("Validation data", val_data.shape)
     print("Test data", test_data.shape)
+    print("ntokens", ntokens)
     return ntokens, train_data, val_data, test_data
 
 
@@ -246,6 +233,7 @@ def model_train(
     dropout,
     lr,
     pos_encoding_max_len,
+    best_model_path,
     workflow_id=None,
 ):
     # TODO :ml-refactor: save device type and random seed: https://pytorch.org/docs/stable/notes/randomness.html
@@ -260,11 +248,12 @@ def model_train(
         device_type = "cpu"
         try:
             if torch.cuda.is_available():
-                device_type = "gpu"
+                device_type = "cuda"
             elif torch.backends.mps.is_available():
                 device_type = "mps"
         except:
             pass
+
         device = torch.device(device_type)
 
         model = TransformerModel(
@@ -301,7 +290,7 @@ def model_train(
             if val_loss < best_val_loss:
                 best_val_loss = val_loss
                 # best_m = model
-                torch.save(model.state_dict(), "transformer_wikitext2.pth")
+                torch.save(model.state_dict(), best_model_path)
 
         print("Finished training")
         # Load the best model's state
@@ -309,7 +298,7 @@ def model_train(
             device
         )
         print("Loading model")
-        torch_loaded = torch.load("transformer_wikitext2.pth")
+        torch_loaded = torch.load(best_model_path)
         best_m.load_state_dict(torch_loaded)
 
         print("Evaluating")
@@ -318,6 +307,7 @@ def model_train(
         print(f"Test loss: {test_loss:.2f}")
 
         return {
+            "device_type": device_type,
             "test_loss": test_loss,
             "train_loss": train_loss,
             "val_loss": val_loss,

@@ -14,6 +14,7 @@ def init_dask(scheduler_file, with_flowcept=False):
     from dask.distributed import Client
 
     client = Client(scheduler_file=scheduler_file)
+
     consumer = None
     if with_flowcept:
         from flowcept import FlowceptDaskWorkerAdapter
@@ -28,9 +29,20 @@ def dask_workflow(client, llm_run_meta_params, rep_dir, input_data_dir):
     print("Getting wikitext data...")
     ntokens, train_data, val_data, test_data = get_wiki_text(input_data_dir)
     print("Done. Now starting the workflow.")
-    
     wf_id = f"wf_{uuid4()}"
     print(f"Workflow_Id={wf_id}")
+    with open(os.path.join(rep_dir, "parent_wf_" + wf_id + ".txt"), "w+") as f:
+        f.write(wf_id)
+
+    with open(os.path.join(args.rep_dir, "dask_client_info.json"), "w") as json_file:
+        json.dump(
+            dict(client.scheduler_info()), json_file, indent=2
+        )  # indent for pretty formatting (optional)
+
+    best_model_path = os.path.join(
+        rep_dir, f"best_transformer_wikitext2_model_{wf_id}.pth"
+    )
+
     configs = generate_configs(llm_run_meta_params)
     outputs = []
     for conf in configs:
@@ -42,6 +54,7 @@ def dask_workflow(client, llm_run_meta_params, rep_dir, input_data_dir):
                 "val_data": val_data,
                 "test_data": test_data,
                 "workflow_id": wf_id,
+                "best_model_path": best_model_path,
             }
         )
         outputs.append(client.submit(model_train, **conf))
@@ -49,7 +62,7 @@ def dask_workflow(client, llm_run_meta_params, rep_dir, input_data_dir):
     results = []
     for o in outputs:
         r = o.result()
-        r.pop("model")  # removing unserializable
+        r.pop("model", None)  # removing unserializable
         results.append(r)
 
     with open(os.path.join(rep_dir, "workflow_result.json"), "w") as outfile:
@@ -71,9 +84,12 @@ def parse_args():
         "--rep-dir", metavar="D", required=True, help="Job's repetition directory"
     )
     required.add_argument(
-        "--workflow-params", metavar="D", required=True, help="Workflow Parameters as a sringfied dictionary"
+        "--workflow-params",
+        metavar="D",
+        required=True,
+        help="Workflow Parameters as a sringfied dictionary",
     )
-    
+
     optional.add_argument(
         "--with-flowcept", action="store_true", help="Enable Flowcept interceptions"
     )
@@ -97,7 +113,8 @@ if __name__ == "__main__":
     llm_run_meta_params = json.loads(workflow_params_str)
     input_data_dir = llm_run_meta_params.pop("input_data_dir")
     print(input_data_dir)
-    with open(os.path.join(args.rep_dir, "llm_meta_params.json"), 'w') as json_file:
-        json.dump(llm_run_meta_params, json_file, indent=2)  # indent for pretty formatting (optional)
+    with open(os.path.join(args.rep_dir, "llm_meta_params.json"), "w") as json_file:
+        json.dump(
+            llm_run_meta_params, json_file, indent=2
+        )  # indent for pretty formatting (optional)
     dask_workflow(client, llm_run_meta_params, args.rep_dir, input_data_dir)
-

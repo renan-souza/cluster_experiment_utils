@@ -8,11 +8,11 @@ project:
   telemetry_capture:
     gpu: true
     cpu: true
-    per_cpu: true
-    process_info: true
+    per_cpu: false
+    process_info: false
     mem: true
-    disk: true
-    network: true
+    disk: false
+    network: false
     machine_info: true
 
 log:

@@ -1,15 +1,6 @@
-# Got from here: https://gist.github.com/briansp2020/717f5cab006889f056b36eacee7dd5d7
-#
-# Build PyTorch
-git clone https://github.com/ROCmSoftwarePlatform/pytorch.git
-cd pytorch
-git submodule init
-git submodule update
-python tools/amd_build/build_pytorch_amd.py
-python tools/amd_build/build_caffe2_amd.py
-USE_ROCM=1 MAX_JOBS=16 python setup.py install
-pip install matplotlib torchvision torchtext
-pip install datasets
+pip install torch==1.13.1+rocm5.2 torchvision==0.14.1+rocm5.2 torchaudio==0.13.1 --extra-index-url https://download.pytorch.org/whl/rocm5.2
 pip install experiment_cluster_utils
 pip install shap # conflicts with requirements-responsible_ai.txt @ flowcept
-pip install flowcept[dask,analytics,amd]
+pip install flowcept[dask,analytics,amd] # or in flowcept's directory,  pip install -e .[dask,analytics,and]
+pip list | grep torch
+python -c 'import torch; print(torch.cuda.is_available())'

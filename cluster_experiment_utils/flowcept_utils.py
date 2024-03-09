@@ -1,5 +1,7 @@
 import json
 import os
+import redis
+import time
 from pathlib import Path
 from typing import Any, Dict
 import getpass
@@ -46,7 +48,7 @@ def update_flowcept_settings(
             "job_id": job_id,
             "log_path": log_path,
             "log_level": exp_conf.static_params.flowcept_log_level,
-            "user": getpass.getuser(),            
+            "user": getpass.getuser(),
             "campaign_id": exp_conf.static_params.campaign_id,
         },
     )
@@ -62,7 +64,14 @@ def update_flowcept_settings(
 
     flowcept_settings_path = os.path.join(repetition_dir, "flowcept_settings.yaml")
     OmegaConf.save(new_settings, Path(flowcept_settings_path))
+
+    flowcept_userdir_path = os.path.expanduser(f"~/.flowcept")
+    os.makedirs(flowcept_userdir_path, exist_ok=True)
+    destination_file = os.path.join(flowcept_userdir_path, "settings.yaml")
+    OmegaConf.save(new_settings, Path(destination_file))
+
     print(f"Saved new {flowcept_settings_path}")
+    print(f"Saved new {destination_file}")
     print(repr(new_settings))
     os.environ["FLOWCEPT_SETTINGS_PATH"] = flowcept_settings_path
     return new_settings
@@ -96,12 +105,40 @@ def start_mongo(db_host, mongo_start_cmd, rep_dir):
     print("Mongo UP!")
 
 
+def start_redis(exp_conf, flowcept_settings):
+    redis_start_cmd = exp_conf.static_params.redis_start_command
+    db_host = flowcept_settings.main_redis.host
+    db_port = flowcept_settings.main_redis.port
 
-def start_redis(db_host, redis_start_cmd):
     print("Starting Redis")
     run_cmd(f"ssh {db_host} {redis_start_cmd} &")
     printed_sleep(2)
-    print("Done starting Redis.")
+
+    start_time = time.time()
+    trials = 0
+    success = False
+    max_trials = 10
+    check_interval = 7
+    max_duration = 30
+
+    while trials < max_trials and time.time() - start_time < max_duration:
+        try:
+            r = redis.StrictRedis(host=db_host, port=db_port, decode_responses=True)
+            r.ping()
+            success = True
+            break
+        except redis.ConnectionError as e:
+            print(
+                f"Trial {trials + 1}: Redis connection failed. We're sending the kill cmd and Retrying in {check_interval} seconds."
+            )
+            run_cmd(f"ssh {db_host} pkill -9 -f redis-server &")
+            time.sleep(check_interval)
+            trials += 1
+
+    if success:
+        print("Done starting Redis.")
+    else:
+        print(f"Unable to establish a connection to Redis after {max_trials} trials.")
 
 
 def test_data_and_persist(rep_dir, wf_result, job_output):
@@ -111,8 +148,9 @@ def test_data_and_persist(rep_dir, wf_result, job_output):
     from flowcept import DBAPI
     from flowcept import WorkflowObject
     from flowcept import TaskQueryAPI
+
     api = TaskQueryAPI()
-    
+
     wf_id = wf_result.get("workflow_id")
     docs = api.query(filter={"workflow_id": wf_id})
 
