@@ -2,7 +2,10 @@ import sys
 import argparse
 import os
 import json
+from pathlib import Path
 from uuid import uuid4
+
+from omegaconf import OmegaConf
 
 from cluster_experiment_utils.utils import generate_configs
 
@@ -24,12 +27,12 @@ def init_dask(scheduler_file, with_flowcept=False):
     return client, consumer
 
 
-def dask_workflow(client, exp_param_settings, rep_dir):
+def dask_workflow(client, llm_run_meta_params, rep_dir):
     ntokens, train_data, val_data, test_data = get_wiki_text()
 
     wf_id = f"wf_{uuid4()}"
     print(f"Workflow_Id={wf_id}")
-    configs = generate_configs(exp_param_settings)
+    configs = generate_configs(llm_run_meta_params)
     outputs = []
     for conf in configs:
         conf.update(
@@ -41,20 +44,16 @@ def dask_workflow(client, exp_param_settings, rep_dir):
                 "workflow_id": wf_id,
             }
         )
-        outputs.append(
-            client.submit(model_train, **conf)
-        )
+        outputs.append(client.submit(model_train, **conf))
 
     results = []
     for o in outputs:
         r = o.result()
-        r.pop("model") # removing unserializable
+        r.pop("model")  # removing unserializable
         results.append(r)
 
     with open(os.path.join(rep_dir, "workflow_result.json"), "w") as outfile:
-        json.dump(
-            {"workflow_id": wf_id, "results": results}, outfile
-        )
+        json.dump({"workflow_id": wf_id, "results": results}, outfile)
     print("I'm Dask client. I'm going to close Dask gracefully!")
     client.close()
 
@@ -71,9 +70,12 @@ def parse_args():
         "--rep-dir", metavar="D", required=True, help="Job's repetition directory"
     )
     required.add_argument(
-        "--exp-param-settings", metavar="D", required=True,
-        help="Experiment Params"
+        "--exp-conf", metavar="D", required=True, help="Experiment Conf File"
     )
+    required.add_argument(
+        "--varying-param-key", metavar="D", required=True, help="Varying Param Key"
+    )
+
     optional.add_argument(
         "--with-flowcept", action="store_true", help="Enable Flowcept interceptions"
     )
@@ -90,8 +92,13 @@ def parse_args():
 if __name__ == "__main__":
     args = parse_args()
     print("Arguments in llm_workflow.py=", args)
-    client, consumer = init_dask(args.rep_dir, args.scheduler_file, args.with_flowcept)
+    client, consumer = init_dask(args.scheduler_file, args.with_flowcept)
     print("client", client, consumer)
-    dask_workflow(client, args.exp_param_settings, args.rep_dir)
+
+    exp_conf_data = OmegaConf.load(Path(args.exp_conf))
+    varying_param_key = args.varying_param_key
+    llm_run_meta_params = exp_conf_data.varying_params.varying_param_key.workflow_params
+    print(llm_run_meta_params)
+    dask_workflow(client, llm_run_meta_params, args.rep_dir)
     # if consumer is not None:
     #     consumer.stop()

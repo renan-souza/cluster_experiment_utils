@@ -100,9 +100,7 @@ class TransformerModel(nn.Module):
         parent_workflow_id=None,
     ):
         super(TransformerModel, self).__init__()
-        self.workflow_id = register_module_as_workflow(
-            self, parent_workflow_id
-        )
+        self.workflow_id = register_module_as_workflow(self, parent_workflow_id)
         (
             TransformerEncoderLayer,
             TransformerEncoder,
@@ -125,9 +123,7 @@ class TransformerModel(nn.Module):
             max_len=pos_encoding_max_len,
             workflow_id=self.workflow_id,
         )
-        encoder_layers = TransformerEncoderLayer(
-            d_model, nhead, d_hid, dropout
-        )
+        encoder_layers = TransformerEncoderLayer(d_model, nhead, d_hid, dropout)
         self.transformer_encoder = TransformerEncoder(encoder_layers, nlayers)
         self.encoder = Embedding(ntoken, d_model)
         self.d_model = d_model
@@ -175,8 +171,7 @@ class PositionalEncoding(nn.Module):
         pe = torch.zeros(max_len, d_model)
         position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)
         div_term = torch.exp(
-            torch.arange(0, d_model, 2).float()
-            * (-math.log(10000.0) / d_model)
+            torch.arange(0, d_model, 2).float() * (-math.log(10000.0) / d_model)
         )
         pe[:, 0::2] = torch.sin(position * div_term)
         pe[:, 1::2] = torch.cos(position * div_term)
@@ -284,9 +279,7 @@ def model_train(
         ).to(device)
         criterion = nn.CrossEntropyLoss()
         optimizer = optim.Adam(model.parameters(), lr=lr)
-        best_val_loss = float(
-            "inf"
-        )  # Initialize the best validation loss to infinity
+        best_val_loss = float("inf")  # Initialize the best validation loss to infinity
         # best_m = None
         # Iterate through the epochs
         for epoch in range(1, epochs + 1):
@@ -297,9 +290,7 @@ def model_train(
             )
 
             # Evaluate the model on the validation data and calculate the validation loss
-            val_loss = evaluate(
-                ntokens, model, val_data, criterion, eval_batch_size
-            )
+            val_loss = evaluate(ntokens, model, val_data, criterion, eval_batch_size)
 
             # Print the training and validation losses for the current epoch
             print(
@@ -314,18 +305,16 @@ def model_train(
 
         print("Finished training")
         # Load the best model's state
-        best_m = TransformerModel(
-            ntokens, emsize, nhead, nhid, nlayers, dropout
-        ).to(device)
+        best_m = TransformerModel(ntokens, emsize, nhead, nhid, nlayers, dropout).to(
+            device
+        )
         print("Loading model")
         torch_loaded = torch.load("transformer_wikitext2.pth")
         best_m.load_state_dict(torch_loaded)
 
         print("Evaluating")
         # Evaluate the best model on the test dataset
-        test_loss = evaluate(
-            ntokens, best_m, test_data, criterion, eval_batch_size
-        )
+        test_loss = evaluate(ntokens, best_m, test_data, criterion, eval_batch_size)
         print(f"Test loss: {test_loss:.2f}")
 
         return {
