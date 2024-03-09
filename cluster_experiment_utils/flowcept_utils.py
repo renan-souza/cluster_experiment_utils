@@ -46,8 +46,8 @@ def update_flowcept_settings(
             "job_id": job_id,
             "log_path": log_path,
             "log_level": exp_conf.static_params.flowcept_log_level,
-            "user": getpass.getuser(),
-            "experiment_id": exp_conf.static_params.experiment_id,
+            "user": getpass.getuser(),            
+            "campaign_id": exp_conf.static_params.campaign_id,
         },
     )
 
@@ -96,6 +96,7 @@ def start_mongo(db_host, mongo_start_cmd, rep_dir):
     print("Mongo UP!")
 
 
+
 def start_redis(db_host, redis_start_cmd):
     print("Starting Redis")
     run_cmd(f"ssh {db_host} {redis_start_cmd} &")
@@ -104,12 +105,14 @@ def start_redis(db_host, redis_start_cmd):
 
 
 def test_data_and_persist(rep_dir, wf_result, job_output):
+    if wf_result is None:
+        print("We couldn't get wf_result, so we can't persist the wf result")
+        return
     from flowcept import DBAPI
     from flowcept import WorkflowObject
     from flowcept import TaskQueryAPI
-
     api = TaskQueryAPI()
-
+    
     wf_id = wf_result.get("workflow_id")
     docs = api.query(filter={"workflow_id": wf_id})
 

@@ -2,7 +2,9 @@ static_params:
   project_id: STF219
   gpu_type: amd
   n_gpus_per_node: 2
-  dask_user_workflow: /lustre/orion/stf219/scratch/souzar/cluster_experiment_utils/executors/dask_workflows/simple_dask_workflow.py --scheduler-file=$[scheduler-file_val] --rep-dir=$[rep-dir_val]  
+  # Below script to run the very simple dask workflow
+  #dask_user_workflow: /lustre/orion/stf219/scratch/souzar/cluster_experiment_utils/executors/dask_workflows/simple_dask_workflow.py --scheduler-file=$[scheduler-file_val] --rep-dir=$[rep-dir_val]  
+  dask_user_workflow: /lustre/orion/stf219/scratch/souzar/cluster_experiment_utils/executors/dask_workflows/llm/llm_workflow.py --scheduler-file=$[scheduler-file_val] --rep-dir=$[rep-dir_val] --workflow-params=$[workflow-params_val] 
   dask_workers_startup_wait_in_sec: 5
   job_execution_script: /lustre/orion/stf219/scratch/souzar/cluster_experiment_utils/executors/flowcept_exp_executor/run_dask_job.py
   mongo_start_command: /lustre/orion/stf219/scratch/souzar/dependency_software/mongodb-linux-x86_64-suse15-7.0.6/bin/mongod --bind_ip_all --dbpath $[MONGO_DATA] --logpath $[MONGO_LOG]
@@ -11,12 +13,13 @@ static_params:
   job_name: flowcept_llm
   proj_dir: /lustre/orion/stf219/scratch/souzar/cluster_experiment_utils/exp_dir/exps_llm  
   #container_images_dir: /gpfs/alpine/stf219/scratch/souzar/container_images
-  conda_env: /lustre/orion/stf219/scratch/souzar/miniconda/envs/flowcept_llm_tests
-  flowcept_base_settings_path: /lustre/orion/stf219/scratch/souzar/cluster_experiment_utils/exp_dir/conf/sample_flowcept_settings.yaml
+  conda_env: /lustre/orion/stf219/scratch/souzar/miniconda/envs/llmtest2
+  flowcept_base_settings_path: /lustre/orion/stf219/scratch/souzar/cluster_experiment_utils/exp_dir/conf/flowcept_base_settings.yaml
   dask_scheduler_setup_path: /lustre/orion/stf219/scratch/souzar/flowcept/resources/dask_scheduler_setup.py
   flowcept_log_level: debug
   user: souzar
-  experiment_id: flowcept_llm
+  campaign_id: flowcept_llm
+  environment_id: frontier
   start_mongo: false
   custom_batch_job_attributes:
     slurm.qos: debug
@@ -29,11 +32,19 @@ varying_params:
     nreps: 1
     with_flowcept: true
     notes: test
-    # workflow_params:
-    #    no_wfs: 10
-    #    no_maps: 3
-    #    no_attrs: 1
-    #    sleep_time: 1
+    workflow_params: {
+      "input_data_dir": "/lustre/orion/stf219/scratch/souzar/cluster_experiment_utils/exp_dir/exps_llm/wikitext-2-v1.data",
+      "batch_size": [20],
+      "eval_batch_size": [10],
+      "emsize": [200],
+      "nhid": [200],
+      "nlayers": [2],  # 2
+      "nhead": [2],
+      "dropout": [0.2],
+      "epochs": [1],
+      "lr": [0.1],
+      "pos_encoding_max_len": [5000],
+    }
     adapters:
       dask:
         worker_should_get_input: true

@@ -2,10 +2,7 @@ import sys
 import argparse
 import os
 import json
-from pathlib import Path
 from uuid import uuid4
-
-from omegaconf import OmegaConf
 
 from cluster_experiment_utils.utils import generate_configs
 
@@ -27,14 +24,17 @@ def init_dask(scheduler_file, with_flowcept=False):
     return client, consumer
 
 
-def dask_workflow(client, llm_run_meta_params, rep_dir):
-    ntokens, train_data, val_data, test_data = get_wiki_text()
-
+def dask_workflow(client, llm_run_meta_params, rep_dir, input_data_dir):
+    print("Getting wikitext data...")
+    ntokens, train_data, val_data, test_data = get_wiki_text(input_data_dir)
+    print("Done. Now starting the workflow.")
+    
     wf_id = f"wf_{uuid4()}"
     print(f"Workflow_Id={wf_id}")
     configs = generate_configs(llm_run_meta_params)
     outputs = []
     for conf in configs:
+        print(conf)
         conf.update(
             {
                 "ntokens": ntokens,
@@ -54,6 +54,7 @@ def dask_workflow(client, llm_run_meta_params, rep_dir):
 
     with open(os.path.join(rep_dir, "workflow_result.json"), "w") as outfile:
         json.dump({"workflow_id": wf_id, "results": results}, outfile)
+
     print("I'm Dask client. I'm going to close Dask gracefully!")
     client.close()
 
@@ -70,12 +71,9 @@ def parse_args():
         "--rep-dir", metavar="D", required=True, help="Job's repetition directory"
     )
     required.add_argument(
-        "--exp-conf", metavar="D", required=True, help="Experiment Conf File"
+        "--workflow-params", metavar="D", required=True, help="Workflow Parameters as a sringfied dictionary"
     )
-    required.add_argument(
-        "--varying-param-key", metavar="D", required=True, help="Varying Param Key"
-    )
-
+    
     optional.add_argument(
         "--with-flowcept", action="store_true", help="Enable Flowcept interceptions"
     )
@@ -95,10 +93,11 @@ if __name__ == "__main__":
     client, consumer = init_dask(args.scheduler_file, args.with_flowcept)
     print("client", client, consumer)
 
-    exp_conf_data = OmegaConf.load(Path(args.exp_conf))
-    varying_param_key = args.varying_param_key
-    llm_run_meta_params = exp_conf_data.varying_params.varying_param_key.workflow_params
-    print(llm_run_meta_params)
-    dask_workflow(client, llm_run_meta_params, args.rep_dir)
-    # if consumer is not None:
-    #     consumer.stop()
+    workflow_params_str = args.workflow_params
+    llm_run_meta_params = json.loads(workflow_params_str)
+    input_data_dir = llm_run_meta_params.pop("input_data_dir")
+    print(input_data_dir)
+    with open(os.path.join(args.rep_dir, "llm_meta_params.json"), 'w') as json_file:
+        json.dump(llm_run_meta_params, json_file, indent=2)  # indent for pretty formatting (optional)
+    dask_workflow(client, llm_run_meta_params, args.rep_dir, input_data_dir)
+

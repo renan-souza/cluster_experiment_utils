@@ -6,7 +6,7 @@ import torch.nn as nn
 import torch.optim as optim
 from torchtext.data.utils import get_tokenizer
 from torchtext.vocab import build_vocab_from_iterator
-from datasets import load_dataset
+from datasets import load_from_disk
 
 import flowcept
 from flowcept import FlowceptConsumerAPI
@@ -55,9 +55,9 @@ def get_batch(source, i, bptt=35):
     return data, target
 
 
-def get_wiki_text():
+def get_wiki_text(input_data_dir):
     # Load the WikiText2 dataset
-    dataset = load_dataset("wikitext", "wikitext-2-v1")
+    dataset = load_from_disk(input_data_dir)    
     test_dataset = dataset["test"]
     train_dataset = dataset["train"]
     validation_dataset = dataset["validation"]

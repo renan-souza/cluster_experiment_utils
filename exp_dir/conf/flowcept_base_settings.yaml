@@ -22,7 +22,7 @@ log:
 
 experiment:
   user: $[user]
-  experiment_id: $[experiment_id]
+  campaign_id: $[campaign_id]
 
 main_redis:
   host: localhost
@@ -42,20 +42,14 @@ mongodb:
   remove_empty_fields: false
   create_collection_index: true
 
+sys_metadata:
+  environment_id: $[environment_id]
+
 web_server:
   host: 0.0.0.0
   port: 5000
 
-
-  #  sys_name: 0
-#  node_name: 0
-#  login_name: 0
-#  public_ip: 0
-#  private_ip: 0
-#
-
 extra_metadata:
-  place_holder: ""
   job_id: $[job_id]
 
 analytics:
@@ -75,4 +69,4 @@ adapters:
     scheduler_should_get_input: true
     worker_should_get_output: true
     scheduler_create_timestamps: true
-    worker_create_timestamps: false
+    worker_create_timestamps: true
