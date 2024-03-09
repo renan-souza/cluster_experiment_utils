@@ -1,27 +1,12 @@
 import sys
 import argparse
 import os
+import json
+from uuid import uuid4
 
+from cluster_experiment_utils.utils import generate_configs
 
-def dummy_func1(x, workflow_id=None):
-    return x * 2
-
-
-def dummy_func2(y, workflow_id=None):
-    return y + y
-
-
-def calculate_batch_and_epochs(z, w, workflow_id=None):
-    result = {"batch_size": int(z + w + 16), "epochs": max(int(z / w) + 1, 2)}
-    # Silly thing just to check GPU info
-    import torch
-
-    if torch.cuda.is_available():
-        gpus = {}
-        for i in range(torch.cuda.device_count()):
-            gpus[i] = torch.cuda.get_device_properties(i).name
-        result["gpus"] = gpus
-    return result
+from executors.dask_workflows.llm.llm_trainer import get_wiki_text, model_train
 
 
 def init_dask(scheduler_file, with_flowcept=False):
@@ -39,22 +24,36 @@ def init_dask(scheduler_file, with_flowcept=False):
     return client, consumer
 
 
-def dask_workflow(client, rep_dir):
-    import json
-    import numpy as np
-    from uuid import uuid4
+def dask_workflow(client, exp_param_settings, rep_dir):
+    ntokens, train_data, val_data, test_data = get_wiki_text()
 
-    i1 = np.random.random()
     wf_id = f"wf_{uuid4()}"
     print(f"Workflow_Id={wf_id}")
-    o1 = client.submit(dummy_func1, i1, workflow_id=wf_id)
-    o2 = client.submit(dummy_func2, o1, workflow_id=wf_id)
-    o3 = client.submit(calculate_batch_and_epochs, o1, o2, workflow_id=wf_id)
-    print(f"Task3_id={o3.key}")
-    print(f"Result={o3.result()}")
+    configs = generate_configs(exp_param_settings)
+    outputs = []
+    for conf in configs:
+        conf.update(
+            {
+                "ntokens": ntokens,
+                "train_data": train_data,
+                "val_data": val_data,
+                "test_data": test_data,
+                "workflow_id": wf_id,
+            }
+        )
+        outputs.append(
+            client.submit(model_train, **conf)
+        )
+
+    results = []
+    for o in outputs:
+        r = o.result()
+        r.pop("model") # removing unserializable
+        results.append(r)
+
     with open(os.path.join(rep_dir, "workflow_result.json"), "w") as outfile:
         json.dump(
-            {"workflow_id": wf_id, "task_id": o3.key, "result": o3.result()}, outfile
+            {"workflow_id": wf_id, "results": results}, outfile
         )
     print("I'm Dask client. I'm going to close Dask gracefully!")
     client.close()
@@ -71,6 +70,10 @@ def parse_args():
     required.add_argument(
         "--rep-dir", metavar="D", required=True, help="Job's repetition directory"
     )
+    required.add_argument(
+        "--exp-param-settings", metavar="D", required=True,
+        help="Experiment Params"
+    )
     optional.add_argument(
         "--with-flowcept", action="store_true", help="Enable Flowcept interceptions"
     )
@@ -86,9 +89,9 @@ def parse_args():
 
 if __name__ == "__main__":
     args = parse_args()
-    print("Arguments in simple_dask_workflow.py=", args)
-    client, consumer = init_dask(args.scheduler_file, args.with_flowcept)
+    print("Arguments in llm_workflow.py=", args)
+    client, consumer = init_dask(args.rep_dir, args.scheduler_file, args.with_flowcept)
     print("client", client, consumer)
-    dask_workflow(client, args.rep_dir)
+    dask_workflow(client, args.exp_param_settings, args.rep_dir)
     # if consumer is not None:
     #     consumer.stop()
