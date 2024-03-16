@@ -3,44 +3,46 @@ project:
   json_serializer: default # or complex. If "complex", FlowCept will deal with complex python dicts that may contain JSON unserializable values
   replace_non_json_serializable: true
   performance_logging: false
-  register_workflow: true
-  enrich_messages: true
-  telemetry_capture:
-    gpu: true
-    cpu: true
-    per_cpu: false
-    process_info: false
-    mem: true
-    disk: false
-    network: false
-    machine_info: true
+  register_workflow: false
+  enrich_messages: false
+  # telemetry_capture:
+  #   cpu: false
+  #   #gpu: "${oc.env:GPU_CAPTURE,[used]}"
+  #   gpu: "None"
+  #   per_cpu: false
+  #   process_info: false
+  #   mem: false
+  #   disk: false
+  #   network: false
+  #   machine_info: false
 
 log:
   log_path: $[log_path]
-  log_file_level: $[log_level]
-  log_stream_level: $[log_level]
+  log_file_level: $[flowcept_file_log_level]
+  log_stream_level: $[flowcept_stdout_log_level]
 
 experiment:
   user: $[user]
   campaign_id: $[campaign_id]
 
 main_redis:
-  host: localhost
+  host: $[db_host]
   port: 6379
+  instances: $[redis_instances]
   channel: interception
-  buffer_size: 50
-  insertion_buffer_time_secs: 5
-
+  buffer_size: 10000
+  insertion_buffer_time_secs: 30
+ 
 mongodb:
   host: login13
   port: 27017
   db: flowcept
   collection: tasks
-  insertion_buffer_time_secs: 5
-  max_buffer_size: 50
-  min_buffer_size: 10
+  insertion_buffer_time_secs: 30
+  max_buffer_size: 15000
+  min_buffer_size: 10000
   remove_empty_fields: false
-  create_collection_index: true
+  create_collection_index: false
 
 sys_metadata:
   environment_id: $[environment_id]
@@ -63,10 +65,10 @@ adapters:
 
   dask:
     kind: dask
-    redis_host: $[db_host]
+    redis_host: $[db_host]   # dask interceptor also uses dask as KV. This is a different usage from the MQ's Redis.
     redis_port: 6379
     worker_should_get_input: true
     scheduler_should_get_input: true
     worker_should_get_output: true
-    scheduler_create_timestamps: true
-    worker_create_timestamps: true
+    scheduler_create_timestamps: false
+    worker_create_timestamps: false
