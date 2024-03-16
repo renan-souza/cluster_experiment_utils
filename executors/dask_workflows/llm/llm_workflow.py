@@ -25,22 +25,22 @@ def init_dask(scheduler_file, with_flowcept=False):
     return client, consumer
 
 
-def dask_workflow(client, llm_run_meta_params, rep_dir, input_data_dir, model_train_func, workflow_id):
-    wf_id = workflow_id#f"wf_{uuid4()}"
+def dask_workflow(
+    client, llm_run_meta_params, rep_dir, input_data_dir, model_train_func, workflow_id
+):
+    wf_id = workflow_id  # f"wf_{uuid4()}"
     print(f"Workflow_Id={wf_id}")
     with open(os.path.join(rep_dir, "parent_wf_" + wf_id + ".txt"), "w+") as f:
         f.write(wf_id)
 
     with open(os.path.join(args.rep_dir, "dask_client_info.json"), "w") as json_file:
-        json.dump(
-            dict(client.scheduler_info()), json_file, indent=2
-        )
+        json.dump(dict(client.scheduler_info()), json_file, indent=2)
 
     configs = generate_configs(llm_run_meta_params)
-    with open(os.path.join(args.rep_dir, "llm_configs.txt"), 'w') as file:    
+    with open(os.path.join(args.rep_dir, "llm_configs.txt"), "w") as file:
         pretty_printer = pprint.PrettyPrinter(stream=file)
         pretty_printer.pprint(configs)
-    
+
     outputs = []
     for conf in configs:
         print(conf)
@@ -58,16 +58,23 @@ def dask_workflow(client, llm_run_meta_params, rep_dir, input_data_dir, model_tr
     for o in outputs:
         r = o.result()
         print("Done one model")
-        r.pop("model", None)  # removing unserializable    
+        r.pop("model", None)  # removing unserializable
         results.append(r)
 
     df = pd.DataFrame(results)
-    mean_times = dict(df.filter(like='time', axis=1).mean())
+    mean_times = dict(df.filter(like="time", axis=1).mean())
     with open(os.path.join(rep_dir, "mean_times.json"), "w") as outfile:
         json.dump(mean_times, outfile)
-    
+
     with open(os.path.join(rep_dir, "workflow_result.json"), "w") as outfile:
-        json.dump({"workflow_id": wf_id, "results": results, "dask_info": client.scheduler_info()}, outfile)
+        json.dump(
+            {
+                "workflow_id": wf_id,
+                "results": results,
+                "dask_info": client.scheduler_info(),
+            },
+            outfile,
+        )
 
     print("I'm Dask client. I'm going to close Dask gracefully!")
     client.close()
@@ -84,9 +91,7 @@ def parse_args():
     required.add_argument(
         "--rep-dir", metavar="D", required=True, help="Job's repetition directory"
     )
-    required.add_argument(
-        "--workflow-id", metavar="D", required=True, help="Wf Id"
-    )
+    required.add_argument("--workflow-id", metavar="D", required=True, help="Wf Id")
     required.add_argument(
         "--workflow-params",
         metavar="D",
@@ -124,10 +129,18 @@ if __name__ == "__main__":
 
     if args.with_flowcept:
         from executors.dask_workflows.llm.llm_trainer import model_train
+
         model_train_func = model_train
     else:
         from executors.dask_workflows.llm.llm_trainer_no_flowcept import model_train
-        model_train_func = model_train
-        
-    dask_workflow(client, llm_run_meta_params, args.rep_dir, input_data_dir, model_train_func, args.workflow_id)
 
+        model_train_func = model_train
+
+    dask_workflow(
+        client,
+        llm_run_meta_params,
+        args.rep_dir,
+        input_data_dir,
+        model_train_func,
+        args.workflow_id,
+    )

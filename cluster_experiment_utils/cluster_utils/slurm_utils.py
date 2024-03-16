@@ -93,7 +93,7 @@ class SlurmUtils(BaseClusterUtils):
         """
         output = run_cmd_check_output("scontrol show hostnames $SLURM_JOB_NODELIST")
         hosts = output.split()
-        assert(len(hosts))
+        assert len(hosts)
         return hosts
 
     def __init__(self):
