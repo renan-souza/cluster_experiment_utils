@@ -49,15 +49,14 @@ def get_wiki_text(data_dir):
             pass
         device = torch.device(device_type)
         t2 = time()
-        t_device_available = t2 - t1        
+        t_device_available = t2 - t1
         train_data = train_data.to(device)
         val_data = val_data.to(device)
         test_data = test_data.to(device)
-        t_gpu_load = time() - t2    
+        t_gpu_load = time() - t2
     except:
         raise Exception("Couldn't send data to device")
-    
-    
+
     if device_type == "cpu":
         raise Exception(
             "It is going to take forever because we coudln't send the data to a faster device"
@@ -67,7 +66,16 @@ def get_wiki_text(data_dir):
     print("Validation data", val_data.shape)
     print("Test data", test_data.shape)
     print("ntokens", ntokens)
-    return ntokens, train_data, val_data, test_data, t_disk_load, t_device_available, t_device_available, t_gpu_load
+    return (
+        ntokens,
+        train_data,
+        val_data,
+        test_data,
+        t_disk_load,
+        t_device_available,
+        t_device_available,
+        t_gpu_load,
+    )
 
 
 class TransformerModel(nn.Module):
@@ -83,7 +91,7 @@ class TransformerModel(nn.Module):
         parent_workflow_id=None,
     ):
         super(TransformerModel, self).__init__()
-        
+
         TransformerEncoderLayer = nn.TransformerEncoderLayer
         TransformerEncoder = nn.TransformerEncoder
         Embedding = nn.Embedding
@@ -95,7 +103,7 @@ class TransformerModel(nn.Module):
             d_model,
             dropout,
             max_len=pos_encoding_max_len,
-            #workflow_id=self.workflow_id,
+            # workflow_id=self.workflow_id,
         )
         encoder_layers = TransformerEncoderLayer(d_model, nhead, d_hid, dropout)
         self.transformer_encoder = TransformerEncoder(encoder_layers, nlayers)
@@ -114,7 +122,7 @@ class TransformerModel(nn.Module):
         )
         return mask
 
-    #@flowcept_task(args_handler=torch_args_handler)
+    # @flowcept_task(args_handler=torch_args_handler)
     def forward(self, src):
         if self.src_mask is None or self.src_mask.size(0) != len(src):
             device = src.device
@@ -132,7 +140,7 @@ class TransformerModel(nn.Module):
 class PositionalEncoding(nn.Module):
     def __init__(self, d_model, dropout=0.1, max_len=5000, workflow_id=None):
         super(PositionalEncoding, self).__init__()
-        #self.workflow_id = workflow_id
+        # self.workflow_id = workflow_id
         # Dropout = register_modules(
         #     [
         #         nn.Dropout,
@@ -140,7 +148,7 @@ class PositionalEncoding(nn.Module):
         #     workflow_id=self.workflow_id,
         # )
         Dropout = nn.Dropout
-        
+
         self.dropout = Dropout(p=dropout)
 
         pe = torch.zeros(max_len, d_model)
@@ -153,7 +161,7 @@ class PositionalEncoding(nn.Module):
         pe = pe.unsqueeze(0).transpose(0, 1)
         self.register_buffer("pe", pe)
 
-    #@flowcept_task(args_handler=torch_args_handler)
+    # @flowcept_task(args_handler=torch_args_handler)
     def forward(self, x):
         x = x + self.pe[: x.size(0), :]
         return self.dropout(x)
@@ -205,7 +213,7 @@ def evaluate(ntokens, model, data_source, criterion, bptt=35):
     return total_loss / (i + 1)  # Return the average loss per mini-batch
 
 
-#@model_profiler()
+# @model_profiler()
 def model_train(
     batch_size,
     eval_batch_size,
@@ -237,13 +245,22 @@ def model_train(
     }
     t0 = time()
     init_time = t0
-    print("Getting wikitext data...")    
-    ntokens, train_data, val_data, test_data, t_disk_load, t_device_available, t_device_available, t_gpu_load = get_wiki_text(input_data_dir)
+    print("Getting wikitext data...")
+    (
+        ntokens,
+        train_data,
+        val_data,
+        test_data,
+        t_disk_load,
+        t_device_available,
+        t_device_available,
+        t_gpu_load,
+    ) = get_wiki_text(input_data_dir)
     print("Done. Now starting the workflow.")
     time_get_wiki_text = time() - t0
     # TODO :ml-refactor: save device type and random seed: https://pytorch.org/docs/stable/notes/randomness.html
     # TODO :base-interceptor-refactor: Can we do it better?
-    
+
     train_data = batchify(train_data, batch_size)
     val_data = batchify(val_data, eval_batch_size)
     test_data = batchify(test_data, eval_batch_size)
@@ -261,7 +278,7 @@ def model_train(
         raise Exception(
             "It is going to take forever because we coudln't send the data to a faster device"
         )
-        
+
     device = torch.device(device_type)
 
     model = TransformerModel(
@@ -274,25 +291,24 @@ def model_train(
         pos_encoding_max_len,
         parent_workflow_id=workflow_id,
     ).to(device)
-    
+
     transformer_model_wf_id = str(uuid4())
     # flowceptor = FlowceptConsumerAPI(flowcept.instrumentation.decorators.instrumentation_interceptor, bundle_exec_id=workflow_id, start_doc_inserter=False)
     # flowceptor.start()
     # flowceptor.logger.info(f"Flowcept with bundle id {id(flowceptor)} started!")
-    
 
-    
     # model_wf_ids_dir = os.path.join(rep_dir, "model_wf_ids")
     # os.makedirs(model_wf_ids_dir, exist_ok=True)
     # model_wf_id_path = os.path.join(model_wf_ids_dir, "model_wf_id" + transformer_model_wf_id + ".txt")
     # with open(model_wf_id_path, "w+") as f:
     #     f.write(transformer_model_wf_id)
 
-    best_models_dir =  os.path.join(rep_dir, "best_models")
+    best_models_dir = os.path.join(rep_dir, "best_models")
     os.makedirs(best_models_dir, exist_ok=True)
     best_model_path = os.path.join(
-        best_models_dir, f"best_transformer_wikitext2_model_{transformer_model_wf_id}.pth"
-    )        
+        best_models_dir,
+        f"best_transformer_wikitext2_model_{transformer_model_wf_id}.pth",
+    )
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.Adam(model.parameters(), lr=lr)
     best_val_loss = float("inf")  # Initialize the best validation loss to infinity
@@ -319,14 +335,12 @@ def model_train(
             best_val_loss = val_loss
             # best_m = model
             torch.save(model.state_dict(), best_model_path)
-        
-        #print(f"Model {transformer_model_wf_id} finished epoch {epoch}")
+
+        # print(f"Model {transformer_model_wf_id} finished epoch {epoch}")
     training_time = time() - t0
-    #print(f"Model {transformer_model_wf_id} finished training.")
+    # print(f"Model {transformer_model_wf_id} finished training.")
     # Load the best model's state
-    best_m = TransformerModel(ntokens, emsize, nhead, nhid, nlayers, dropout).to(
-        device
-    )
+    best_m = TransformerModel(ntokens, emsize, nhead, nhid, nlayers, dropout).to(device)
     t0 = time()
     print("Loading model")
     torch_loaded = torch.load(best_model_path)
@@ -353,13 +367,16 @@ def model_train(
         "test_loss": test_loss,
         "train_loss": train_loss,
         "val_loss": val_loss,
-        #"model": model,
+        # "model": model,
     }
     task_output.update(parameters_dict)
-    with open(os.path.join(rep_dir, f"FINISHED_{transformer_model_wf_id}_model_result.json"), "w") as outfile:
+    with open(
+        os.path.join(rep_dir, f"FINISHED_{transformer_model_wf_id}_model_result.json"),
+        "w",
+    ) as outfile:
         json.dump(task_output, outfile)
 
-    #task_output["model"] = model  # for model_profiler
+    # task_output["model"] = model  # for model_profiler
 
     # flowceptor.logger.info(f"All done for this model. Closing inner flowcept bundle {id(flowceptor)}")
     # flowceptor.stop()
