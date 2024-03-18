@@ -4,6 +4,7 @@ project:
   replace_non_json_serializable: true
   performance_logging: false
   register_workflow: false
+  register_instrumented_tasks: false
   enrich_messages: false
   # telemetry_capture:
   #   cpu: false
@@ -30,8 +31,8 @@ main_redis:
   port: 6379
   instances: $[redis_instances]
   channel: interception
-  buffer_size: 10000
-  insertion_buffer_time_secs: 30
+  buffer_size: 150000
+  insertion_buffer_time_secs: 120
  
 mongodb:
   host: login13

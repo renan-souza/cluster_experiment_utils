@@ -50,7 +50,7 @@ def main():
 
     mongo_start_cmd = exp_conf.static_params.mongo_start_command
     mongo_dir = os.path.join(exp_conf.static_params.proj_dir, "mongo")
-    start_mongo("localhost", mongo_start_cmd, mongo_dir)
+    start_mongo(host, port, mongo_start_cmd, mongo_dir)
 
     # Get current hostname
     hostname = socket.gethostname()

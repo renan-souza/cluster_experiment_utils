@@ -1,7 +1,7 @@
 static_params:
   project_id: STF219
   gpu_type: amd
-  n_gpus_per_node: 1
+  n_gpus_per_node: 8
   # Below script to run the very simple dask workflow
   #dask_user_workflow: /lustre/orion/stf219/scratch/souzar/cluster_experiment_utils/executors/dask_workflows/simple_dask_workflow.py --scheduler-file=$[scheduler-file_val] --rep-dir=$[rep-dir_val]  
   dask_user_workflow: /lustre/orion/stf219/scratch/souzar/cluster_experiment_utils/executors/dask_workflows/llm/llm_workflow.py --scheduler-file=$[scheduler-file_val] --rep-dir=$[rep-dir_val] --workflow-params=$[workflow-params_val]
@@ -22,10 +22,10 @@ static_params:
   user: souzar
   campaign_id: flowcept_llm
   environment_id: frontier
-  has_mongo: true
-  start_mongo: true
+  has_mongo: false
+  start_mongo: false
   notes:
-      - a
+      - ""
       
   custom_batch_job_attributes:
     slurm.qos: debug
@@ -34,11 +34,11 @@ varying_params:
 
 
   larger_test2:
-    skip: true
+    skip: false
     wall_time: "2:00"
     nnodes: 2
-    nreps: 1
-    with_flowcept: false
+    nreps: 3
+    with_flowcept: true
     notes: test --  redis buffer 10k, mongo buffer 10,15k
     workflow_params: {
       "input_data_dir": "/lustre/orion/stf219/scratch/souzar/cluster_experiment_utils/exp_dir/exps_llm/wiki_data",
@@ -65,7 +65,7 @@ varying_params:
 
 
   larger_test:
-    skip: false
+    skip: true
     wall_time: "2:00"
     nnodes: 2
     nreps: 3

@@ -2,8 +2,10 @@ import sys
 import argparse
 import os
 from dataclasses import dataclass
+import pandas as pd
 from pathlib import Path
 from time import time
+from uuid import uuid4
 import json
 from datetime import datetime
 
@@ -41,14 +43,8 @@ def parse_args():
 
 
 def start_scheduler(preload_scheduler_cmd, rep_dir, scheduler_file, gpu_type):
-    if gpu_type == "amd":
-        visible_device = "export ROCR_VISIBLE_DEVICES=''"
-    elif gpu_type == "nvidia":
-        visible_device = "export CUDA_VISIBLE_DEVICES=''"
-    else:
-        raise ValueError("Unknown gpu")
-
-    scheduler_cmd = f"{visible_device} && dask scheduler {preload_scheduler_cmd}  --no-dashboard --no-show --scheduler-file {scheduler_file}"
+    
+    scheduler_cmd = f"export GPU_CAPTURE='None' && dask scheduler {preload_scheduler_cmd}  --no-dashboard --no-show --scheduler-file {scheduler_file}"
     # TODO: check about this # --interface='ib0', not sure if we have this on Frontier.
 
     print("Starting Scheduler")
@@ -87,9 +83,13 @@ def start_workers_with_gpu(
     n_gpus_per_node,
     gpu_type,
     rep_dir,
-    scheduler_file,
+    scheduler_file,    
     dask_workers_startup_wait_in_sec,
+    job_hosts,
+    redis_policy,
+    redis_instances=None,
 ):
+
     # From: https://docs.olcf.ornl.gov/systems/frontier_user_guide.html
     # Due to the unique architecture of Frontier compute nodes and the way
     # that Slurm currently allocates GPUs and CPU cores to job steps,
@@ -109,14 +109,30 @@ def start_workers_with_gpu(
     cluster_utils = BaseClusterUtils.get_instance()
     print("Let's start the workers.")
     print()
-    for i in range(nnodes):
-        worker_cmds = []
+    redis_hosts_ports = {}
+    if redis_policy != "one":
+        if redis_instances is not None:        
+            for redis_instance in redis_instances:
+                _split = redis_instance.split(":")
+                _host = _split[0]
+                _port = int(_split[1])
+                if _host not in redis_hosts_ports:
+                    redis_hosts_ports[_host] = []
+                redis_hosts_ports[_host].append(f" export REDIS_HOST={_host} && export REDIS_PORT={_port} && ")
+    print(redis_hosts_ports)
+    for i in range(nnodes):    
+        _host = job_hosts[i]
         for j in range(n_gpus_per_node):
+            redis_export_cmd = ""
+            if redis_policy == 'one_per_worker':
+                if len(redis_hosts_ports) and len(redis_hosts_ports[_host]) > 1:
+                    redis_export_cmd = redis_hosts_ports[_host][j]
+            
             stdout = os.path.join(worker_logs, f"worker_{i}_{j}.out")
             stderr = os.path.join(worker_logs, f"worker_{i}_{j}.err")
             #  --interface ib0
             print(f"Starting worker {i}_{j}")
-            worker_cmd = f"export {visible_device}={j} && dask worker --nthreads 1 --nworkers 1 --no-dashboard  --scheduler-file {scheduler_file} > {stdout} 2> {stderr} "
+            worker_cmd = f"export {visible_device}={j} && {redis_export_cmd} dask worker --nthreads 1 --nworkers 1 --no-dashboard  --scheduler-file {scheduler_file} > {stdout} 2> {stderr} "
             cluster_utils.run_job(
                 worker_cmd, node_count=1, processes_per_node=1, gpus_per_job=1
             )
@@ -133,7 +149,7 @@ def start_workers_with_gpu(
 
 
 def start_client(
-    conf_data, varying_param_key, rep_dir, scheduler_file, with_flowcept_arg
+    conf_data, varying_param_key, rep_dir, scheduler_file, with_flowcept_arg, main_workflow_id
 ):
     print("Starting the Client")
     python_client_command = "python " + conf_data.static_params.dask_user_workflow
@@ -152,17 +168,20 @@ def start_client(
     for k, v in client_cmd_args.items():
         python_client_command = python_client_command.replace("$[" + k + "_val]", v)
 
-    python_client_command += " " + with_flowcept_arg
+    python_client_command += " --workflow-id=" + main_workflow_id + " " + with_flowcept_arg 
 
+    python_client_command = f"export GPU_CAPTURE='None' && {python_client_command}"
+    
     t_c_i = time()
     run_cmd_check_output(python_client_command)
 
     t_c_f = time()
-    printed_sleep(15)
+    print("Executed client workflow!")
+    printed_sleep(5)
     return t_c_f, t_c_i
 
 
-def start_flowcept(exp_conf, job_hosts, rep_dir, varying_param_key):
+def start_flowcept(exp_conf, job_hosts, rep_dir, varying_param_key, nnodes, n_workers):
     print("Importing flowcept_utils")
     from cluster_experiment_utils.flowcept_utils import (
         update_flowcept_settings,
@@ -170,7 +189,6 @@ def start_flowcept(exp_conf, job_hosts, rep_dir, varying_param_key):
         start_redis,
         start_mongo,
     )
-
     print("Done importing.")
 
     cluster_utils = BaseClusterUtils.get_instance()
@@ -181,34 +199,35 @@ def start_flowcept(exp_conf, job_hosts, rep_dir, varying_param_key):
     dask_scheduler_setup_path = exp_conf["static_params"]["dask_scheduler_setup_path"]
     preload_scheduler_cmd = f"--preload {dask_scheduler_setup_path}"
     flowcept_settings = OmegaConf.load(Path(flowcept_base_settings_path))
-
-    db_host = list(job_hosts.keys())[0]
-    print(f"DB Host: {db_host}")
+    
     job_id = cluster_utils.get_this_job_id()
-    update_flowcept_settings(
+    flowcept_settings = update_flowcept_settings(
         exp_conf,
         flowcept_settings,
-        db_host,
+        job_hosts,
         should_start_mongo,
         rep_dir,
         varying_param_key,
         job_id,
+        nnodes,
+        n_workers=n_workers
     )
     flowcept_settings_path = os.path.join(rep_dir, "flowcept_settings.yaml")
     os.environ["FLOWCEPT_SETTINGS_PATH"] = flowcept_settings_path
-    kill_dbs(db_host, should_start_mongo)
-    printed_sleep(3)
-    start_redis(exp_conf, flowcept_settings)
-
+    kill_dbs(flowcept_settings, should_start_mongo)
+    start_redis(flowcept_settings, exp_conf, rep_dir)
     if should_start_mongo:
         mongo_start_cmd = exp_conf.static_params.mongo_start_command
-        start_mongo(db_host, mongo_start_cmd, rep_dir)
+        start_mongo(flowcept_settings.mongodb.host, flowcept_settings.mongodb.port, mongo_start_cmd, rep_dir)
 
+    main_workflow_id = "wf_"+str(uuid4())
+    print("Main workflow id=", main_workflow_id)
+    
     from flowcept import FlowceptConsumerAPI
 
-    consumer = FlowceptConsumerAPI()
+    consumer = FlowceptConsumerAPI(bundle_exec_id=main_workflow_id, start_doc_inserter=False)
     consumer.start()
-    return consumer, flowcept_settings, preload_scheduler_cmd
+    return consumer, flowcept_settings, preload_scheduler_cmd, main_workflow_id
 
 
 def main(
@@ -217,6 +236,11 @@ def main(
     my_job_id,
     rep_no: int,
 ):
+    should_skip = exp_conf.varying_params[varying_param_key].get("skip")
+    if should_skip:
+        print(f"We should skip this varying_param_key: {varying_param_key}")
+        return
+    
     cluster_utils = BaseClusterUtils.get_instance()
     print("Killing old job steps")
     cluster_utils.kill_all_running_job_steps()
@@ -242,20 +266,30 @@ def main(
     print(f"Using python: {python_env}")
 
     job_hosts = cluster_utils.get_job_hosts()
+    print("Job hosts:", job_hosts)
+
+    
+    for host in job_hosts:
+        run_cmd(f"ssh {host} pkill dask &")
+    printed_sleep(5)
+        
     preload_scheduler_cmd = ""
 
     t0 = time()
-    printed_sleep(2)
-
     consumer = None
     flowcept_settings = None
-    if with_flowcept:
-        consumer, flowcept_settings, preload_scheduler_cmd = start_flowcept(
-            exp_conf, job_hosts, rep_dir, varying_param_key
-        )
 
+    redis_instances = None
+    redis_policy = None
+    main_workflow_id = ""
+    if with_flowcept:
+        consumer, flowcept_settings, preload_scheduler_cmd, main_workflow_id = start_flowcept(
+            exp_conf, job_hosts, rep_dir, varying_param_key, nnodes, n_workers=nnodes*n_gpus_per_node
+        )
+        redis_instances = flowcept_settings.main_redis.get("instances", None)
+        redis_policy = exp_conf.static_params.redis_policy
     if not start_scheduler(preload_scheduler_cmd, rep_dir, scheduler_file, gpu_type):
-        return -1
+        return None
 
     printed_sleep(3)
     start_workers_with_gpu(
@@ -265,10 +299,13 @@ def main(
         rep_dir,
         scheduler_file,
         dask_workers_startup_wait_in_sec,
+        job_hosts,
+        redis_policy,
+        redis_instances
     )
 
     t_c_f, t_c_i = start_client(
-        exp_conf, varying_param_key, rep_dir, scheduler_file, with_flowcept_arg
+        exp_conf, varying_param_key, rep_dir, scheduler_file, with_flowcept_arg, main_workflow_id
     )
     print("Workflow done!")
     if consumer is not None:
@@ -303,37 +340,62 @@ def main(
         flowcept_settings,
     )
 
-    if with_flowcept:
-        from cluster_experiment_utils.flowcept_utils import test_data_and_persist
-
-        test_data_and_persist(rep_dir, workflow_result, job_output)
-
+    has_mongo = exp_conf.static_params.has_mongo
+    if with_flowcept and has_mongo:
+        from cluster_experiment_utils.flowcept_utils import test_data_and_persist, kill_dbs
+        test_data_and_persist(rep_dir, workflow_result, job_output)   
+        should_start_mongo = exp_conf.static_params.start_mongo
+        kill_dbs(flowcept_settings, should_start_mongo)
+        printed_sleep(5)
+        
     print("All done. Going to kill all runnnig job steps.")
     cluster_utils.kill_all_running_job_steps()
     with open(os.path.join(rep_dir, "SUCCESS_UHUL"), "w") as f:
         f.write("")
 
+    return job_output
 
 if __name__ == "__main__":
     args = parse_args()
 
+    
     exp_conf = OmegaConf.load(Path(args.conf))
-
+    outputs = []
+    mean_times_list = []
     nreps = exp_conf.varying_params[args.varying_param_key]["nreps"]
+
+    proj_dir = exp_conf.static_params.proj_dir
+    job_dir = os.path.join(proj_dir, "exps", args.my_job_id)
+    os.makedirs(job_dir, exist_ok=True)
+    
     for rep_no in range(nreps):
-        main(
+        job_output = main(
             exp_conf=exp_conf,
             varying_param_key=args.varying_param_key,
             my_job_id=args.my_job_id,
             rep_no=rep_no,
         )
+        wf_result = job_output["wf_result"]
+        if "results" in wf_result:
+            df = pd.DataFrame(wf_result["results"])
+            mean_times = dict(df.filter(like='time', axis=1).mean())
+            mean_times["rep_no"] = rep_no
+            mean_times_list.append(mean_times)
+            df = pd.DataFrame(mean_times_list)
+            df.describe().to_csv(os.path.join(job_dir, "times_stats.csv"), index=False)
 
-    proj_dir = exp_conf.static_params.proj_dir
-    job_dir = os.path.join(proj_dir, "exps", args.my_job_id)
-    os.makedirs(job_dir, exist_ok=True)
+        if job_output is not None:
+            outputs.append(job_output)
+        
+    
+    with open(os.path.join(job_dir, "outputs.json"), "w") as f:
+        json.dump(outputs, f)
+
     with open(os.path.join(job_dir, "SUCCESS"), "w") as f:
         f.write(datetime.utcnow().strftime("%Y-%m-%d %H-%M-%S.%f")[:-3])
+        
 
+   
     # TODO: uncomment
     # BaseClusterUtils.get_instance().kill_this_job()
     sys.exit(0)
