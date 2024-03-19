@@ -73,7 +73,6 @@ def get_wiki_text(data_dir):
         test_data,
         t_disk_load,
         t_device_available,
-        t_device_available,
         t_gpu_load,
     )
 
@@ -252,7 +251,6 @@ def model_train(
         val_data,
         test_data,
         t_disk_load,
-        t_device_available,
         t_device_available,
         t_gpu_load,
     ) = get_wiki_text(input_data_dir)

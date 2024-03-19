@@ -44,7 +44,7 @@ def parse_args():
 
 def start_scheduler(preload_scheduler_cmd, rep_dir, scheduler_file, gpu_type):
     
-    scheduler_cmd = f"export GPU_CAPTURE='None' && dask scheduler {preload_scheduler_cmd}  --no-dashboard --no-show --scheduler-file {scheduler_file}"
+    scheduler_cmd = f"export GPU_CAPTURE=None && dask scheduler {preload_scheduler_cmd}  --no-dashboard --no-show --scheduler-file {scheduler_file}"
     # TODO: check about this # --interface='ib0', not sure if we have this on Frontier.
 
     print("Starting Scheduler")
@@ -136,7 +136,7 @@ def start_workers_with_gpu(
             cluster_utils.run_job(
                 worker_cmd, node_count=1, processes_per_node=1, gpus_per_job=1
             )
-            printed_sleep(2)
+            printed_sleep(1)
             print()
             # worker_cmds.append(worker_cmd)
         # worker_cmds_str = " && ".join(worker_cmds)
@@ -170,7 +170,7 @@ def start_client(
 
     python_client_command += " --workflow-id=" + main_workflow_id + " " + with_flowcept_arg 
 
-    python_client_command = f"export GPU_CAPTURE='None' && {python_client_command}"
+    python_client_command = f"export GPU_CAPTURE=None && {python_client_command}"
     
     t_c_i = time()
     run_cmd_check_output(python_client_command)
@@ -225,7 +225,8 @@ def start_flowcept(exp_conf, job_hosts, rep_dir, varying_param_key, nnodes, n_wo
     
     from flowcept import FlowceptConsumerAPI
 
-    consumer = FlowceptConsumerAPI(bundle_exec_id=main_workflow_id, start_doc_inserter=False)
+    has_mongo = exp_conf.static_params.has_mongo
+    consumer = FlowceptConsumerAPI(bundle_exec_id=main_workflow_id, start_doc_inserter=has_mongo)
     consumer.start()
     return consumer, flowcept_settings, preload_scheduler_cmd, main_workflow_id
 
