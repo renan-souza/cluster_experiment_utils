@@ -226,6 +226,7 @@ def start_flowcept(exp_conf, job_hosts, rep_dir, varying_param_key, nnodes, n_wo
     from flowcept import FlowceptConsumerAPI
 
     has_mongo = exp_conf.static_params.has_mongo
+    print(f"Starting consumer with mongo={has_mongo}")
     consumer = FlowceptConsumerAPI(bundle_exec_id=main_workflow_id, start_doc_inserter=has_mongo)
     consumer.start()
     return consumer, flowcept_settings, preload_scheduler_cmd, main_workflow_id

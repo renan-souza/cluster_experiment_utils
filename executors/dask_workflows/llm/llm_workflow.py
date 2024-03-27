@@ -3,6 +3,7 @@ import argparse
 import os
 import json
 import pprint
+from time import sleep 
 import pandas as pd
 from uuid import uuid4
 
@@ -76,7 +77,9 @@ def dask_workflow(
             outfile,
         )
 
-    print("I'm Dask client. I'm going to close Dask gracefully!")
+    
+    print("I'm Dask client. I'm going to close Dask gracefully! Gonna wait 60s before closing.")
+    sleep(30)
     client.close()
 
 
