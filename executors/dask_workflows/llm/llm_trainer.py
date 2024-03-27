@@ -97,9 +97,12 @@ class TransformerModel(nn.Module):
         dropout=0.5,
         pos_encoding_max_len=5000,
         parent_workflow_id=None,
+        custom_metadata: dict = None,
     ):
         super(TransformerModel, self).__init__()
-        self.workflow_id = register_module_as_workflow(self, parent_workflow_id)
+        self.workflow_id = register_module_as_workflow(
+            self, parent_workflow_id, custom_metadata
+        )
         (
             TransformerEncoderLayer,
             TransformerEncoder,
@@ -313,6 +316,7 @@ def model_train(
         dropout,
         pos_encoding_max_len,
         parent_workflow_id=workflow_id,
+        custom_metadata={"model_step": "train"},
     ).to(device)
 
     transformer_model_wf_id = model.workflow_id
@@ -364,7 +368,16 @@ def model_train(
     training_time = time() - t0
     print(f"Model {transformer_model_wf_id} finished training.")
     # Load the best model's state
-    best_m = TransformerModel(ntokens, emsize, nhead, nhid, nlayers, dropout).to(device)
+    best_m = TransformerModel(
+        ntokens,
+        emsize,
+        nhead,
+        nhid,
+        nlayers,
+        dropout,
+        parent_workflow_id=workflow_id,
+        custom_metadata={"model_step": "evaluation"},
+    ).to(device)
     t0 = time()
     print("Loading model")
     torch_loaded = torch.load(best_model_path)
