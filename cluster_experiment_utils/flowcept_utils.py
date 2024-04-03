@@ -75,6 +75,7 @@ def update_flowcept_settings(
             "log_path": log_path,
             "user": getpass.getuser(),
             "campaign_id": exp_conf.static_params.campaign_id,
+            "environment_id": exp_conf.static_params.environment_id,
         },
     )
 

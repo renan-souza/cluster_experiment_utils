@@ -124,20 +124,18 @@ if __name__ == "__main__":
 
     workflow_params_str = args.workflow_params
     llm_run_meta_params = json.loads(workflow_params_str)
+    inspect_module = llm_run_meta_params.pop("inspect_module", False)
     input_data_dir = llm_run_meta_params.pop("input_data_dir")
     print(input_data_dir)
     with open(os.path.join(args.rep_dir, "llm_meta_params.json"), "w") as json_file:
         json.dump(
             llm_run_meta_params, json_file, indent=2
-        )  # indent for pretty formatting (optional)
-
-    if args.with_flowcept:
+        )
+    if args.with_flowcept and inspect_module:
         from executors.dask_workflows.llm.llm_trainer import model_train
-
         model_train_func = model_train
     else:
         from executors.dask_workflows.llm.llm_trainer_no_flowcept import model_train
-
         model_train_func = model_train
 
     dask_workflow(
