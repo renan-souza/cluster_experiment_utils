@@ -269,10 +269,10 @@ def test_data_and_persist(rep_dir, wf_result, job_output, flowcept_settings):
     with open(wf_obj_file, "w") as json_file:
         json.dump(wfobj.to_dict(), json_file, indent=2)
 
-
     print(f"Saved file {wf_obj_file}.")
 
     ### COUNTING DATA
+
     mongo_host = flowcept_settings.mongodb.host
     mongo_port = flowcept_settings.mongodb.port
     client = pymongo.MongoClient(
@@ -305,6 +305,7 @@ def test_data_and_persist(rep_dir, wf_result, job_output, flowcept_settings):
         "total_task_size": total_task_size,
         "total_wf_size": total_wf_size
     }
-    data_sizes_file = os.path.join(rep_dir, f"wf_obj_{wf_id}.json")
+    data_sizes_file = os.path.join(rep_dir, f"data_sizes.json")
     with open(data_sizes_file, "w") as json_file:
         json.dump(data_sizes, json_file, indent=2)
+    print(f"Saved file {data_sizes_file}.")
