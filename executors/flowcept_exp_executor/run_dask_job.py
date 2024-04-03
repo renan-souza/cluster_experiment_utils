@@ -378,7 +378,7 @@ def main(
             kill_dbs,
         )
 
-        test_data_and_persist(rep_dir, workflow_result, job_output)
+        test_data_and_persist(rep_dir, workflow_result, job_output, flowcept_settings)
         should_start_mongo = exp_conf.static_params.start_mongo
         kill_dbs(flowcept_settings, should_start_mongo)
         printed_sleep(5)

@@ -236,7 +236,7 @@ def start_redis_instance(redis_start_cmd, db_host, db_port):
         )
 
 
-def test_data_and_persist(rep_dir, wf_result, job_output):
+def test_data_and_persist(rep_dir, wf_result, job_output, flowcept_settings):
     if wf_result is None:
         print("We couldn't get wf_result, so we can't persist the wf result")
         return
@@ -261,12 +261,50 @@ def test_data_and_persist(rep_dir, wf_result, job_output):
     # Retrieving full wf info
     wfobj = db_api.get_workflow(wf_id)
 
-    dump_file = os.path.join(rep_dir, f"db_dump_tasks_wf_{wf_id}.zip")
-    db_api.dump_to_file(
-        filter={"workflow_id": wf_id}, output_file=dump_file, should_zip=True
-    )
+    # dump_file = os.path.join(rep_dir, f"db_dump_tasks_wf_{wf_id}.zip")
+    # db_api.dump_to_file(
+    #     filter={"workflow_id": wf_id}, output_file=dump_file, should_zip=True
+    # )
     wf_obj_file = os.path.join(rep_dir, f"wf_obj_{wf_id}.json")
     with open(wf_obj_file, "w") as json_file:
         json.dump(wfobj.to_dict(), json_file, indent=2)
 
-    print(f"Saved files {dump_file} and {wf_obj_file}.")
+
+    print(f"Saved file {wf_obj_file}.")
+
+    ### COUNTING DATA
+    mongo_host = flowcept_settings.mongodb.host
+    mongo_port = flowcept_settings.mongodb.port
+    client = pymongo.MongoClient(
+        host=mongo_host, port=mongo_port, connectTimeoutMS=1000
+    )
+    db = client['flowcept']
+    wf_collection = db['workflows']
+    task_collection = db['tasks']
+
+    num_wfs = wf_collection.count_documents()
+    num_tasks = task_collection.count_documents()
+
+    total_wf_size = 0
+    for document in wf_collection.find():
+        total_wf_size += len(str(document))
+
+    avg_wf_size = total_wf_size/num_wfs
+
+    total_task_size = 0
+    for document in task_collection.find():
+        total_task_size += len(str(document))
+
+    avg_task_size = total_task_size / num_tasks
+
+    data_sizes = {
+        "num_wfs": num_wfs,
+        "num_tasks": num_tasks,
+        "avg_wf_size": avg_wf_size,
+        "avg_task_size": avg_task_size,
+        "total_task_size": total_task_size,
+        "total_wf_size": total_wf_size
+    }
+    data_sizes_file = os.path.join(rep_dir, f"wf_obj_{wf_id}.json")
+    with open(data_sizes_file, "w") as json_file:
+        json.dump(data_sizes, json_file, indent=2)
