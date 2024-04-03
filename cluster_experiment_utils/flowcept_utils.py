@@ -282,17 +282,17 @@ def test_data_and_persist(rep_dir, wf_result, job_output, flowcept_settings):
     wf_collection = db['workflows']
     task_collection = db['tasks']
 
-    num_wfs = wf_collection.count_documents()
-    num_tasks = task_collection.count_documents()
+    num_wfs = wf_collection.count_documents({})
+    num_tasks = task_collection.count_documents({})
 
     total_wf_size = 0
-    for document in wf_collection.find():
+    for document in wf_collection.find({}):
         total_wf_size += len(str(document))
 
-    avg_wf_size = total_wf_size/num_wfs
+    avg_wf_size = total_wf_size / num_wfs
 
     total_task_size = 0
-    for document in task_collection.find():
+    for document in task_collection.find({}):
         total_task_size += len(str(document))
 
     avg_task_size = total_task_size / num_tasks
