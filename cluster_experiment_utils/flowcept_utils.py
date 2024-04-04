@@ -285,26 +285,19 @@ def test_data_and_persist(rep_dir, wf_result, job_output, flowcept_settings):
     num_wfs = wf_collection.count_documents({})
     num_tasks = task_collection.count_documents({})
 
-    total_wf_size = 0
-    for document in wf_collection.find({}):
-        total_wf_size += len(str(document))
-
-    avg_wf_size = total_wf_size / num_wfs
-
-    total_task_size = 0
-    for document in task_collection.find({}):
-        total_task_size += len(str(document))
-
-    avg_task_size = total_task_size / num_tasks
+    
+    db_stats = db.command("dbStats")
+    tasks_stats = db.command("collStats", "tasks")
+    wf_stats = db.command("collStats", "workflows")
 
     data_sizes = {
         "num_wfs": num_wfs,
         "num_tasks": num_tasks,
-        "avg_wf_size": avg_wf_size,
-        "avg_task_size": avg_task_size,
-        "total_task_size": total_task_size,
-        "total_wf_size": total_wf_size
+        "db_stats": db_stats,
+        "tasks_stats": tasks_stats,
+        "wf_stats": wf_stats,
     }
+    
     data_sizes_file = os.path.join(rep_dir, f"data_sizes.json")
     with open(data_sizes_file, "w") as json_file:
         json.dump(data_sizes, json_file, indent=2)

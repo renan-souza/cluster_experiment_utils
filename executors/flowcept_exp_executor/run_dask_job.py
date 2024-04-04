@@ -342,6 +342,7 @@ def main(
     if consumer is not None:
         print("Now going to gracefully stop everything")
         consumer.stop()
+        print("Everything gracefully stopped.")
 
     workflow_result_file = os.path.join(rep_dir, "workflow_result.json")
 
@@ -377,8 +378,9 @@ def main(
             test_data_and_persist,
             kill_dbs,
         )
-
+        print("Test data and persist")
         test_data_and_persist(rep_dir, workflow_result, job_output, flowcept_settings)
+        print("Persisted.")
         should_start_mongo = exp_conf.static_params.start_mongo
         kill_dbs(flowcept_settings, should_start_mongo)
         printed_sleep(5)
