@@ -339,9 +339,12 @@ def main(
         main_workflow_id,
     )
     print("Workflow done!")
+    stop_time = 0
     if consumer is not None:
         print("Now going to gracefully stop everything")
+        t0_stop = time()
         consumer.stop()
+        stop_time = time() - t0_stop
         print("Everything gracefully stopped.")
 
     workflow_result_file = os.path.join(rep_dir, "workflow_result.json")
@@ -370,6 +373,7 @@ def main(
         workflow_result,
         with_flowcept,
         flowcept_settings,
+        stop_time
     )
 
     has_mongo = exp_conf.static_params.has_mongo
@@ -384,7 +388,7 @@ def main(
         should_start_mongo = exp_conf.static_params.start_mongo
         kill_dbs(flowcept_settings, should_start_mongo)
         printed_sleep(5)
-
+    print(f"It took {stop_time} s to stop.")
     print("All done. Going to kill all runnnig job steps.")
     cluster_utils.kill_all_running_job_steps()
     with open(os.path.join(rep_dir, "SUCCESS_UHUL"), "w") as f:

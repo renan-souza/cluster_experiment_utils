@@ -264,6 +264,7 @@ class BaseClusterUtils(object, metaclass=ABCMeta):
         wf_result,
         with_flowcept,
         flowcept_settings,
+        stop_time
     ):
         out_job = {
             "my_job_id": my_job_id,
@@ -278,6 +279,7 @@ class BaseClusterUtils(object, metaclass=ABCMeta):
             "run_end_time": datetime.utcnow().strftime("%Y-%m-%d %H-%M-%S.%f")[:-3],
             "total_time": t1 - t0,
             "client_time": t_c_f - t_c_i,
+            "stop_time": stop_time
         }
         if wf_result is not None:
             out_job["wf_result"] = wf_result
