@@ -43,7 +43,8 @@ def parse_args():
 
 
 def start_scheduler(preload_scheduler_cmd, rep_dir, scheduler_file, gpu_type):
-    scheduler_cmd = f"export GPU_CAPTURE=None && dask scheduler {preload_scheduler_cmd}  --no-dashboard --no-show --scheduler-file {scheduler_file}"
+    # TODO: make generic for nvidia too
+    scheduler_cmd = f"export ROCR_VISIBLE_DEVICES='' && dask scheduler {preload_scheduler_cmd}  --no-dashboard --no-show --scheduler-file {scheduler_file}"
     # TODO: check about this # --interface='ib0', not sure if we have this on Frontier.
 
     print("Starting Scheduler")
@@ -177,7 +178,8 @@ def start_client(
         " --workflow-id=" + main_workflow_id + " " + with_flowcept_arg
     )
 
-    python_client_command = f"export GPU_CAPTURE=None && {python_client_command}"
+    # TODO: make generic for nvidia too
+    python_client_command = f"export ROCR_VISIBLE_DEVICES='' && {python_client_command}"
 
     t_c_i = time()
     run_cmd_check_output(python_client_command)
