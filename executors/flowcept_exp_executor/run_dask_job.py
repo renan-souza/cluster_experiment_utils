@@ -88,6 +88,7 @@ def start_workers_with_gpu(
     job_hosts,
     redis_policy,
     redis_instances=None,
+    python_path_cmd=None
 ):
     # From: https://docs.olcf.ornl.gov/systems/frontier_user_guide.html
     # Due to the unique architecture of Frontier compute nodes and the way
@@ -156,9 +157,13 @@ def start_client(
     scheduler_file,
     with_flowcept_arg,
     main_workflow_id,
+    python_path_cmd
 ):
     print("Starting the Client")
-    python_client_command = "python " + conf_data.static_params.dask_user_workflow
+    python_client_command = ""
+    if python_path_cmd:
+        python_client_command += python_path_cmd + " && "
+    python_client_command += "python " + conf_data.static_params.dask_user_workflow
 
     wf_params = OmegaConf.to_container(
         conf_data["varying_params"][varying_param_key].get("workflow_params", {})
@@ -203,11 +208,24 @@ def start_flowcept(exp_conf, job_hosts, rep_dir, varying_param_key, nnodes, n_wo
 
     cluster_utils = BaseClusterUtils.get_instance()
     should_start_mongo = exp_conf.static_params.start_mongo
+    should_start_redis = exp_conf.static_params.start_redis
+    should_kill_dbs = exp_conf.static_params.kill_dbs
     flowcept_base_settings_path = exp_conf["static_params"][
         "flowcept_base_settings_path"
     ]
-    dask_scheduler_setup_path = exp_conf["static_params"]["dask_scheduler_setup_path"]
-    preload_scheduler_cmd = f"--preload {dask_scheduler_setup_path}"
+    #dask_scheduler_setup_path = exp_conf["static_params"]["dask_scheduler_setup_path"]
+    #preload_scheduler_cmd = f"--preload {dask_scheduler_setup_path}"
+    preload_scheduler_cmd = ""
+
+    additional_python_path = exp_conf["static_params"].get("additional_python_path", None)
+    python_path_cmd = ""
+    if additional_python_path:
+        os.environ["PYTHONPATH"] = os.environ["PYTHONPATH"]+ ":" + additional_python_path
+        print("PYTHON PATH\n\n\n",os.environ["PYTHONPATH"],"\n\n")
+        #python_path_cmd = f"export PYTHONPATH=$PYTHONPATH:{additional_python_path}"
+        # TODO: remove python_path export command. I found that setting os.environ is enough.
+        python_path_cmd = ""
+    
     flowcept_settings = OmegaConf.load(Path(flowcept_base_settings_path))
 
     job_id = cluster_utils.get_this_job_id()
@@ -215,6 +233,7 @@ def start_flowcept(exp_conf, job_hosts, rep_dir, varying_param_key, nnodes, n_wo
         exp_conf,
         flowcept_settings,
         job_hosts,
+        should_start_redis,
         should_start_mongo,
         rep_dir,
         varying_param_key,
@@ -224,8 +243,11 @@ def start_flowcept(exp_conf, job_hosts, rep_dir, varying_param_key, nnodes, n_wo
     )
     flowcept_settings_path = os.path.join(rep_dir, "flowcept_settings.yaml")
     os.environ["FLOWCEPT_SETTINGS_PATH"] = flowcept_settings_path
-    kill_dbs(flowcept_settings, should_start_mongo)
-    start_redis(flowcept_settings, exp_conf, rep_dir)
+    if should_kill_dbs:
+        kill_dbs(flowcept_settings, should_start_mongo)
+    
+    if should_start_redis:
+        start_redis(flowcept_settings, exp_conf, rep_dir)
     if should_start_mongo:
         mongo_start_cmd = exp_conf.static_params.mongo_start_command
         start_mongo(
@@ -238,15 +260,15 @@ def start_flowcept(exp_conf, job_hosts, rep_dir, varying_param_key, nnodes, n_wo
     main_workflow_id = "wf_" + str(uuid4())
     print("Main workflow id=", main_workflow_id)
 
-    from flowcept import FlowceptConsumerAPI
+    #from flowcept import FlowceptConsumerAPI
 
     has_mongo = exp_conf.static_params.has_mongo
     print(f"Starting consumer with mongo={has_mongo}")
-    consumer = FlowceptConsumerAPI(
-        bundle_exec_id=main_workflow_id, start_doc_inserter=has_mongo
-    )
-    consumer.start()
-    return consumer, flowcept_settings, preload_scheduler_cmd, main_workflow_id
+    # consumer = FlowceptConsumerAPI(
+    #     bundle_exec_id=main_workflow_id, start_doc_inserter=has_mongo
+    # )
+    # consumer.start()
+    return python_path_cmd, flowcept_settings, preload_scheduler_cmd, main_workflow_id
 
 
 def main(
@@ -263,7 +285,7 @@ def main(
     cluster_utils = BaseClusterUtils.get_instance()
     print("Killing old job steps")
     cluster_utils.kill_all_running_job_steps()
-
+    has_mongo = exp_conf.static_params.has_mongo
     proj_dir = exp_conf.static_params.proj_dir
     job_dir = os.path.join(proj_dir, "exps", my_job_id)
     rep_dir = os.path.join(job_dir, str(rep_no))
@@ -288,7 +310,7 @@ def main(
     print("Job hosts:", job_hosts)
 
     for host in job_hosts:
-        run_cmd(f"ssh {host} pkill dask &")
+        run_cmd(f"ssh {host} pkill -f dask-scheduler & pkill -f dask-worker")
     printed_sleep(5)
 
     preload_scheduler_cmd = ""
@@ -302,7 +324,7 @@ def main(
     main_workflow_id = ""
     if with_flowcept:
         (
-            consumer,
+            python_path_cmd,
             flowcept_settings,
             preload_scheduler_cmd,
             main_workflow_id,
@@ -314,7 +336,7 @@ def main(
             nnodes,
             n_workers=nnodes * n_gpus_per_node,
         )
-        redis_instances = flowcept_settings.main_redis.get("instances", None)
+        redis_instances = flowcept_settings.mq.get("instances", None)
         redis_policy = exp_conf.static_params.redis_policy
     if not start_scheduler(preload_scheduler_cmd, rep_dir, scheduler_file, gpu_type):
         return None
@@ -330,8 +352,16 @@ def main(
         job_hosts,
         redis_policy,
         redis_instances,
+        python_path_cmd,
     )
 
+    
+    if with_flowcept and has_mongo:
+        from cluster_experiment_utils.flowcept_utils import (
+            mongo_data_sizes
+        )
+        data_sizes = {"data_at_start": mongo_data_sizes()}
+        
     t_c_f, t_c_i = start_client(
         exp_conf,
         varying_param_key,
@@ -339,15 +369,16 @@ def main(
         scheduler_file,
         with_flowcept_arg,
         main_workflow_id,
+        python_path_cmd
     )
     print("Workflow done!")
     stop_time = 0
-    if consumer is not None:
-        print("Now going to gracefully stop everything")
-        t0_stop = time()
-        consumer.stop()
-        stop_time = time() - t0_stop
-        print("Everything gracefully stopped.")
+    # if consumer is not None:
+    #     print("Now going to gracefully stop everything")
+    #     t0_stop = time()
+    #     consumer.stop()
+    #     stop_time = time() - t0_stop
+    #     print("Everything gracefully stopped.")
 
     workflow_result_file = os.path.join(rep_dir, "workflow_result.json")
 
@@ -378,17 +409,21 @@ def main(
         stop_time
     )
 
-    has_mongo = exp_conf.static_params.has_mongo
+    
     if with_flowcept and has_mongo:
         from cluster_experiment_utils.flowcept_utils import (
             test_data_and_persist,
             kill_dbs,
+            mongo_data_sizes
         )
+        data_sizes["data_at_end"] = mongo_data_sizes()
         print("Test data and persist")
-        test_data_and_persist(rep_dir, workflow_result, job_output, flowcept_settings)
+        test_data_and_persist(rep_dir, workflow_result, job_output, data_sizes, flowcept_settings)
         print("Persisted.")
         should_start_mongo = exp_conf.static_params.start_mongo
-        kill_dbs(flowcept_settings, should_start_mongo)
+        should_kill_dbs = exp_conf.static_params.kill_dbs
+        if should_kill_dbs:
+            kill_dbs(flowcept_settings, should_start_mongo)
         printed_sleep(5)
     print(f"It took {stop_time} s to stop.")
     print("All done. Going to kill all runnnig job steps.")

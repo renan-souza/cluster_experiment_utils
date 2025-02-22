@@ -35,6 +35,7 @@ def update_flowcept_settings(
     exp_conf: DictConfig,
     flowcept_settings: DictConfig,
     job_hosts,
+    should_start_redis,
     should_start_mongo,
     repetition_dir,
     varying_param_key,
@@ -45,7 +46,7 @@ def update_flowcept_settings(
     log_path = os.path.join(repetition_dir, "flowcept.log")
     new_settings = OmegaConf.create(flowcept_settings)
     instances = None
-    if flowcept_settings.main_redis.get("instances", None) is not None:
+    if flowcept_settings.mq.get("instances", None) is not None:
         redis_policy = exp_conf.static_params.redis_policy
         if redis_policy == "one_per_worker":
             instances = []
@@ -78,15 +79,19 @@ def update_flowcept_settings(
             "environment_id": exp_conf.static_params.environment_id,
         },
     )
-
-    new_settings.main_redis.host = db_host
+    if should_start_redis:
+        new_settings.mq.host = db_host
+        new_settings.kv_db.host = db_host
+        
     if should_start_mongo:
         new_settings.mongodb.host = db_host
 
-    for adapter_key in new_settings.adapters:
-        new_settings.adapters[adapter_key].update(
-            exp_conf.varying_params[varying_param_key]["adapters"][adapter_key]
-        )
+    for settings_vars in {"adapters", "instrumentation", "telemetry_capture"}:
+        if exp_conf.varying_params[varying_param_key].get(settings_vars, None):
+            if new_settings.get(settings_vars, None):
+                new_settings[settings_vars].update(exp_conf.varying_params[varying_param_key].get(settings_vars))
+            else:
+                new_settings[settings_vars] = exp_conf.varying_params[varying_param_key].get(settings_vars)
 
     flowcept_settings_path = os.path.join(repetition_dir, "flowcept_settings.yaml")
     OmegaConf.save(new_settings, Path(flowcept_settings_path))
@@ -105,10 +110,10 @@ def update_flowcept_settings(
 
 
 def kill_dbs(flowcept_settings, should_start_mongo):
-    redis_instances = flowcept_settings.main_redis.get("instances", None)
+    redis_instances = flowcept_settings.mq.get("instances", None)
     if redis_instances is None:
-        redis_host = flowcept_settings.main_redis.host
-        redis_port = flowcept_settings.main_redis.port
+        redis_host = flowcept_settings.mq.host
+        redis_port = flowcept_settings.mq.port
         print("Killing redis...")
         run_cmd(f"ssh {redis_host} pkill -9 -f redis-server &")
     else:
@@ -161,9 +166,8 @@ def start_mongo(mongo_host, mongo_port, mongo_start_cmd, rep_dir):
             print(f"MongoDB server {mongo_host}:{mongo_port} is up and running.")
             print("Creating index...")
 
-            from flowcept.commons.daos.document_db_dao import DocumentDBDao
-
-            DocumentDBDao(create_index=True)  # this will force index creation
+            from flowcept.commons.daos.docdb_dao.mongodb_dao import MongoDBDAO
+            mongo_dao = MongoDBDAO(create_indices=True)  # this will force index creation
 
             print("Created mongo index!")
             break
@@ -179,10 +183,10 @@ def start_mongo(mongo_host, mongo_port, mongo_start_cmd, rep_dir):
 
 def start_redis(flowcept_settings, exp_conf, rep_dir):
     base_redis_start_command = exp_conf.static_params.redis_start_command
-    redis_instances = flowcept_settings.main_redis.get("instances", None)
+    redis_instances = flowcept_settings.mq.get("instances", None)
     if redis_instances is None:
-        redis_host = flowcept_settings.main_redis.host
-        redis_port = flowcept_settings.main_redis.port
+        redis_host = flowcept_settings.mq.host
+        redis_port = flowcept_settings.mq.port
         start_redis_instance(redis_start_command, redis_host, redis_port)
     else:
         redis_log_dir = os.path.join(rep_dir, "redis_logs")
@@ -235,68 +239,48 @@ def start_redis_instance(redis_start_cmd, db_host, db_port):
             f"Unable to establish a connection to Redis on {db_host} after {max_trials} trials."
         )
 
+def mongo_data_sizes():
+    from flowcept.commons.daos.docdb_dao.mongodb_dao import MongoDBDAO
+    mongo_dao = MongoDBDAO(create_indices=False)
+    _n_tasks = mongo_dao.count_tasks()
+    _n_wfs = mongo_dao.count_workflows()
+    _n_objects = mongo_dao.count_objects()
+    
+    db = mongo_dao._db
+    db_stats = db.command("dbStats")
+    tasks_stats = db.command("collStats", "tasks")
+    wf_stats = db.command("collStats", "workflows")
+    obj_stats = db.command("collStats", "objects")
 
-def test_data_and_persist(rep_dir, wf_result, job_output, flowcept_settings):
+    data_sizes = {
+        "num_wfs": _n_wfs,
+        "num_tasks": _n_tasks,
+        "num_objs": _n_objects,
+        "tasks_stats": tasks_stats,
+        "wf_stats": wf_stats,
+        "obj_stats": obj_stats,
+        "db_stats": db_stats,
+    }
+    return data_sizes
+    
+
+def test_data_and_persist(rep_dir, wf_result, job_output, data_sizes, flowcept_settings):
     if wf_result is None:
         print("We couldn't get wf_result, so we can't persist the wf result")
         return
-    from flowcept import DBAPI
+    from flowcept import Flowcept
     from flowcept import WorkflowObject
-    from flowcept import TaskQueryAPI
-
-    api = TaskQueryAPI()
-
+   
     wf_id = wf_result.get("workflow_id")
-    docs = api.query(filter={"workflow_id": wf_id})
+    docs = Flowcept.db.query(filter={"workflow_id": wf_id})
 
     if len(docs):
         print("Great! Found docs with the workflow_id in the tasks collection.")
 
-    db_api = DBAPI()
     wfobj = WorkflowObject()
     wfobj.workflow_id = wf_id
-    wfobj.custom_metadata = {"workflow_result": wf_result, "job_output": job_output}
-    db_api.insert_or_update_workflow(wfobj)
-
-    # Retrieving full wf info
-    wfobj = db_api.get_workflow(wf_id)
-
-    # dump_file = os.path.join(rep_dir, f"db_dump_tasks_wf_{wf_id}.zip")
-    # db_api.dump_to_file(
-    #     filter={"workflow_id": wf_id}, output_file=dump_file, should_zip=True
-    # )
-    wf_obj_file = os.path.join(rep_dir, f"wf_obj_{wf_id}.json")
-    with open(wf_obj_file, "w") as json_file:
-        json.dump(wfobj.to_dict(), json_file, indent=2)
-
-    print(f"Saved file {wf_obj_file}.")
-
-    ### COUNTING DATA
-
-    mongo_host = flowcept_settings.mongodb.host
-    mongo_port = flowcept_settings.mongodb.port
-    client = pymongo.MongoClient(
-        host=mongo_host, port=mongo_port, connectTimeoutMS=1000
-    )
-    db = client['flowcept']
-    wf_collection = db['workflows']
-    task_collection = db['tasks']
-
-    num_wfs = wf_collection.count_documents({})
-    num_tasks = task_collection.count_documents({})
-
-    
-    db_stats = db.command("dbStats")
-    tasks_stats = db.command("collStats", "tasks")
-    wf_stats = db.command("collStats", "workflows")
-
-    data_sizes = {
-        "num_wfs": num_wfs,
-        "num_tasks": num_tasks,
-        "db_stats": db_stats,
-        "tasks_stats": tasks_stats,
-        "wf_stats": wf_stats,
-    }
+    wfobj.custom_metadata = {"workflow_result": wf_result, "job_output": job_output, "data_sizes": data_sizes}
+    Flowcept.db.insert_or_update_workflow(wfobj)
     
     data_sizes_file = os.path.join(rep_dir, f"data_sizes.json")
     with open(data_sizes_file, "w") as json_file:
